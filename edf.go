@@ -33,6 +33,7 @@ nr of samples[ns] * integer : last signal
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -75,6 +76,15 @@ func (r *Reader) Read(buf []byte) (n int, err error) {
 			r.header.starttime[idx-176] = val // edf+ requires formatting
 		case idx < 192:
 			r.header.numbytes[idx-184] = val // Check n == numbytes
+		case idx == 192:
+			headerNumBytes, err := asciiToInt(r.header.numbytes[:])
+			if err != nil {
+				return 0, err
+			}
+			if n != headerNumBytes {
+				return 0, fmt.Errorf("%d != %d", n, headerNumBytes)
+			}
+			fallthrough
 		case idx < 236:
 			r.header.reserved[idx-192] = val
 		case idx < 244:
@@ -83,7 +93,28 @@ func (r *Reader) Read(buf []byte) (n int, err error) {
 			r.header.duration[idx-244] = val
 		case idx < 256:
 			r.header.ns[idx-252] = val
+		case idx == 256:
+			ns, err = asciiToInt(r.header.ns[:])
+			if err != nil {
+				return 0, err
+			}
+			fallthrough
+		case idx < ns*16+256:
+			r.header.label[0][idx-256] = val
 		}
+	}
+	return n, nil
+}
+
+func asciiToInt(ascii []byte) (n int, err error) {
+	sArr := make([]string, len(ascii))
+	for idx, val := range ascii {
+		sArr[idx] = string(val)
+	}
+	s := strings.Join(sArr, "")
+	n, err = strconv.Atoi(s)
+	if err != nil {
+		return 0, err
 	}
 	return n, nil
 }
@@ -372,7 +403,7 @@ func (h *Header) setNumSignals(ns string) error {
 }
 
 func (h *Header) setLabels(labels []string) error {
-	ns, err := strconv.Atoi(strings.Join(byteToString(h.ns[:]), ""))
+	ns, err := asciiToInt(h.ns[:])
 	if err != nil {
 		return err
 	}
@@ -389,7 +420,7 @@ func (h *Header) setLabels(labels []string) error {
 }
 
 func (h *Header) setTransducerTypes(tts []string) error {
-	ns, err := strconv.Atoi(strings.Join(byteToString(h.ns[:]), ""))
+	ns, err := asciiToInt(h.ns[:])
 	if err != nil {
 		return err
 	}
@@ -406,7 +437,7 @@ func (h *Header) setTransducerTypes(tts []string) error {
 }
 
 func (h *Header) setPhysicalDimensions(phydims []string) error {
-	ns, err := strconv.Atoi(strings.Join(byteToString(h.ns[:]), ""))
+	ns, err := asciiToInt(h.ns[:])
 	if err != nil {
 		return err
 	}
@@ -423,7 +454,7 @@ func (h *Header) setPhysicalDimensions(phydims []string) error {
 }
 
 func (h *Header) setPhysicalMins(phymins []string) error {
-	ns, err := strconv.Atoi(strings.Join(byteToString(h.ns[:]), ""))
+	ns, err := asciiToInt(h.ns[:])
 	if err != nil {
 		return err
 	}
@@ -440,7 +471,7 @@ func (h *Header) setPhysicalMins(phymins []string) error {
 }
 
 func (h *Header) setPhysicalMaxs(phymaxs []string) error {
-	ns, err := strconv.Atoi(strings.Join(byteToString(h.ns[:]), ""))
+	ns, err := asciiToInt(h.ns[:])
 	if err != nil {
 		return err
 	}
@@ -457,7 +488,7 @@ func (h *Header) setPhysicalMaxs(phymaxs []string) error {
 }
 
 func (h *Header) setDigitalMins(digmins []string) error {
-	ns, err := strconv.Atoi(strings.Join(byteToString(h.ns[:]), ""))
+	ns, err := asciiToInt(h.ns[:])
 	if err != nil {
 		return err
 	}
@@ -474,7 +505,7 @@ func (h *Header) setDigitalMins(digmins []string) error {
 }
 
 func (h *Header) setDigitalMaxs(digmaxs []string) error {
-	ns, err := strconv.Atoi(strings.Join(byteToString(h.ns[:]), ""))
+	ns, err := asciiToInt(h.ns[:])
 	if err != nil {
 		return err
 	}
@@ -491,7 +522,7 @@ func (h *Header) setDigitalMaxs(digmaxs []string) error {
 }
 
 func (h *Header) setPrefilters(prefilters []string) error {
-	ns, err := strconv.Atoi(strings.Join(byteToString(h.ns[:]), ""))
+	ns, err := asciiToInt(h.ns[:])
 	if err != nil {
 		return err
 	}
@@ -508,7 +539,7 @@ func (h *Header) setPrefilters(prefilters []string) error {
 }
 
 func (h *Header) setNumSamples(numsamples []string) error {
-	ns, err := strconv.Atoi(strings.Join(byteToString(h.ns[:]), ""))
+	ns, err := asciiToInt(h.ns[:])
 	if err != nil {
 		return err
 	}
@@ -571,14 +602,6 @@ func (h *Header) GetContents() (contents []byte, err error) {
 		contents = append(contents, h.nsreserved[i][:]...)
 	}
 	return contents, nil
-}
-
-func byteToString(in []byte) []string {
-	s := make([]string, len(in))
-	for idx, val := range in {
-		s[idx] = string(val)
-	}
-	return s
 }
 
 // NewData ...
