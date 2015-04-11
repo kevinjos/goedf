@@ -171,6 +171,10 @@ func whichIndex(currIdx int, nsOffset int, arrayLen int) (arrIdx int) {
 func asciiToInt(ascii []byte) (n int, err error) {
 	sArr := make([]string, len(ascii))
 	for idx, val := range ascii {
+		if val == '\x00' {
+			sArr = sArr[:idx]
+			break
+		}
 		sArr[idx] = string(val)
 	}
 	s := strings.Join(sArr, "")
@@ -198,17 +202,17 @@ type Writer struct {
 }
 
 // Write edf data from Writer into writable
-func (w *Writer) Write([]byte) (n int, err error) {
-	headerContents, err := w.header.GetContents()
+func (w *Writer) Write(buf []byte) (n int, err error) {
+	buf, err = w.header.AppendContents(buf)
+	buf = w.data.AppendContents(buf)
 	if err != nil {
 		return 0, err
 	}
-	n0, err := w.writer.Write(headerContents)
+	n0, err := w.writer.Write(buf)
 	if err != nil {
 		return 0, err
 	}
-	dataContents := w.data.GetContents()
-	n1, err := w.writer.Write(dataContents)
+	n1, err := w.writer.Write(buf)
 	if err != nil {
 		return 0, err
 	}
@@ -338,15 +342,15 @@ func NewHeader(options ...func(*Header) error) (*Header, error) {
 			return nil, err
 		}
 	}
-	ns, err := asciiToInt(h.ns[:])
-	if err != nil {
-		return nil, err
-	}
 	// The caller should specify the sample number
 	// The reader will not know yet
 	// The writer will, and should pass SetNS() to NewHeader
-	if ns == 0 {
+	if h.ns == [4]byte{} {
 		return h, nil
+	}
+	ns, err := asciiToInt(h.ns[:])
+	if err != nil {
+		return nil, err
 	}
 	h.allocate(ns)
 	nb := h.calcNumBytes(ns)
@@ -673,8 +677,8 @@ func (h *Header) allocate(ns int) {
 	h.nsreserved = make([][len(h.nsreserved[0])]byte, ns)
 }
 
-// GetContents of header in contiguous byte slice
-func (h *Header) GetContents() (contents []byte, err error) {
+// AppendContents of header in contiguous byte slice
+func (h *Header) AppendContents(contents []byte) (buf []byte, err error) {
 	contents = append(contents, h.version[:]...)
 	contents = append(contents, h.LPID[:]...)
 	contents = append(contents, h.LRID[:]...)
@@ -685,7 +689,7 @@ func (h *Header) GetContents() (contents []byte, err error) {
 	contents = append(contents, h.numdatar[:]...)
 	contents = append(contents, h.duration[:]...)
 	contents = append(contents, h.ns[:]...)
-	ns, err := strconv.Atoi(string(h.ns[:]))
+	ns, err := asciiToInt(h.ns[:])
 	if err != nil {
 		return contents, err
 	}
@@ -719,7 +723,8 @@ func (h *Header) GetContents() (contents []byte, err error) {
 	for i := 0; i < ns; i++ {
 		contents = append(contents, h.nsreserved[i][:]...)
 	}
-	return contents, nil
+	buf = contents
+	return buf, nil
 }
 
 // NewData ...
@@ -735,8 +740,8 @@ type Data struct {
 }
 
 // GetContents ...
-func (d *Data) GetContents() (contents []byte) {
+func (d *Data) AppendContents(buf []byte) []byte {
 	var nilSep []byte
-	contents = bytes.Join(d.samples, nilSep)
-	return contents
+	buf = append(buf, bytes.Join(d.samples, nilSep)...)
+	return buf
 }
