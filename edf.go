@@ -33,135 +33,135 @@ nr of samples[ns] * integer : last signal
 import (
 	"bytes"
 	"errors"
-	"io"
 	"strconv"
 	"strings"
 )
 
 var errNotPrintable = errors.New("outside the printable range")
 
-// NewReader instantiates a new edf reader
-func NewReader(reader io.Reader, header *Header, data *Data) io.Reader {
-	return &Reader{
-		reader: reader,
-		header: header,
-		data:   data,
-	}
-}
-
-// Reader holds edf data read from readable
-type Reader struct {
-	reader io.Reader
-	header *Header
-	data   *Data
-}
-
-// Read efd data from readable into Reader
-func (r *Reader) Read(buf []byte) (n int, err error) {
+// Unmarshal byteslice into edf
+func Unmarshal(data []byte, edf *EDF) error {
 	var ns int
 	var outterIdx int
-	offset := r.header.GetOffsetMap()
+	offset := edf.header.GetOffsetMap()
 
-	n, err = r.reader.Read(buf)
-	if err != nil {
-		return 0, err
-	}
-
-	for idx, val := range buf {
+	for idx, val := range data {
 		switch {
 		case idx < offset["version"]:
-			r.header.version[idx] = val
+			edf.header.version[idx] = val
 		case idx < offset["LPID"]:
-			r.header.LPID[idx-offset["version"]] = val // edf+ requires formatting
+			edf.header.LPID[idx-offset["version"]] = val // edf+ requires formatting
 		case idx < offset["LRID"]:
-			r.header.LRID[idx-offset["LPID"]] = val // edf+ requires formatting
+			edf.header.LRID[idx-offset["LPID"]] = val // edf+ requires formatting
 		case idx < offset["startdate"]:
-			r.header.startdate[idx-offset["LRID"]] = val // edf+ formatting
+			edf.header.startdate[idx-offset["LRID"]] = val // edf+ formatting
 		case idx < offset["starttime"]:
-			r.header.starttime[idx-offset["startdate"]] = val // edf+
+			edf.header.starttime[idx-offset["startdate"]] = val // edf+
 		case idx < offset["numbytes"]:
-			r.header.numbytes[idx-offset["starttime"]] = val // Check numbytes
+			edf.header.numbytes[idx-offset["starttime"]] = val // Check numbytes
 		case idx < offset["reserved"]:
-			r.header.reserved[idx-offset["numbytes"]] = val
+			edf.header.reserved[idx-offset["numbytes"]] = val
 		case idx < offset["numdatar"]:
-			r.header.numdatar[idx-offset["reserved"]] = val
+			edf.header.numdatar[idx-offset["reserved"]] = val
 		case idx < offset["duration"]:
-			r.header.duration[idx-offset["numdatar"]] = val
+			edf.header.duration[idx-offset["numdatar"]] = val
 		case idx < offset["ns"]:
-			r.header.ns[idx-offset["duration"]] = val
+			edf.header.ns[idx-offset["duration"]] = val
 
 		// Done with the non-variable length part of header. Moving on
 		// to header items that have a length that depends on ns.
 		case idx == offset["ns"]:
-			ns, err = asciiToInt(r.header.ns[:])
+			var err error
+			ns, err = asciiToInt(edf.header.ns[:])
 			// Allocate variable length header elements
-			r.header.allocate(ns)
+			edf.header.allocate(ns)
 			if err != nil {
-				return 0, err
+				return err
 			}
-			offset["label"] = ns*len(r.header.label[0]) + offset["ns"]
+			offset["label"] = ns*len(edf.header.label[0]) + offset["ns"]
 			fallthrough
 		case idx < offset["label"]:
-			outterIdx = whichIndex(idx, offset["label"], len(r.header.label))
-			r.header.label[outterIdx][idx%16] = val
+			la := len(edf.header.label[0])
+			outterIdx = whichIndex(idx, offset["ns"], la)
+			edf.header.label[outterIdx][idx%la] = val
 		case idx == offset["label"]:
-			offset["transducerType"] = ns*len(r.header.transducerType[0]) + offset["label"]
+			offset["transducerType"] = ns*len(edf.header.transducerType[0]) + offset["label"]
 			fallthrough
 		case idx < offset["transducerType"]:
-			outterIdx = whichIndex(idx, offset["transducerType"], len(r.header.transducerType))
-			r.header.transducerType[outterIdx][idx%16] = val
+			la := len(edf.header.transducerType[0])
+			outterIdx = whichIndex(idx, offset["label"], la)
+			edf.header.transducerType[outterIdx][idx%la] = val
 		case idx == offset["transducerType"]:
-			offset["phydim"] = ns*len(r.header.phydim[0]) + offset["transducerType"]
+			offset["phydim"] = ns*len(edf.header.phydim[0]) + offset["transducerType"]
 			fallthrough
 		case idx < offset["phydim"]:
-			outterIdx = whichIndex(idx, offset["phydim"], len(r.header.phydim))
-			r.header.phydim[outterIdx][idx%16] = val
+			la := len(edf.header.phydim[0])
+			outterIdx = whichIndex(idx, offset["transducerType"], la)
+			edf.header.phydim[outterIdx][idx%la] = val
 		case idx == offset["phydim"]:
-			offset["phymin"] = ns*len(r.header.phymin[0]) + offset["phydim"]
+			offset["phymin"] = ns*len(edf.header.phymin[0]) + offset["phydim"]
 			fallthrough
 		case idx < offset["phymin"]:
-			outterIdx = whichIndex(idx, offset["phymin"], len(r.header.phymin))
-			r.header.phymin[outterIdx][idx%16] = val
+			la := len(edf.header.phymin[0])
+			outterIdx = whichIndex(idx, offset["phydim"], la)
+			edf.header.phymin[outterIdx][idx%la] = val
 		case idx == offset["phymin"]:
-			offset["phymax"] = ns*len(r.header.phymax[0]) + offset["phymin"]
+			offset["phymax"] = ns*len(edf.header.phymax[0]) + offset["phymin"]
 			fallthrough
 		case idx < offset["phymax"]:
-			outterIdx = whichIndex(idx, offset["phymax"], len(r.header.phymax))
-			r.header.phymax[outterIdx][idx%16] = val
+			la := len(edf.header.phymax[0])
+			outterIdx = whichIndex(idx, offset["phymin"], la)
+			edf.header.phymax[outterIdx][idx%la] = val
 		case idx == offset["phymax"]:
-			offset["digmin"] = ns*len(r.header.digmin[0]) + offset["digmin"]
+			offset["digmin"] = ns*len(edf.header.digmin[0]) + offset["phymax"]
 			fallthrough
 		case idx < offset["digmin"]:
-			outterIdx = whichIndex(idx, offset["digmin"], len(r.header.digmin))
-			r.header.digmin[outterIdx][idx%16] = val
+			la := len(edf.header.digmin[0])
+			outterIdx = whichIndex(idx, offset["phymax"], la)
+			edf.header.digmin[outterIdx][idx%la] = val
 		case idx == offset["digmin"]:
-			offset["digmax"] = ns*len(r.header.digmax[0]) + offset["digmax"]
+			offset["digmax"] = ns*len(edf.header.digmax[0]) + offset["digmin"]
 			fallthrough
 		case idx < offset["digmax"]:
-			outterIdx = whichIndex(idx, offset["digmax"], len(r.header.digmax))
-			r.header.digmax[outterIdx][idx%16] = val
-		case idx == offset["digmin"]:
-			offset["prefilter"] = ns*len(r.header.prefilter[0]) + offset["prefilter"]
+			la := len(edf.header.digmax[0])
+			outterIdx = whichIndex(idx, offset["digmin"], la)
+			edf.header.digmax[outterIdx][idx%la] = val
+		case idx == offset["digmax"]:
+			offset["prefilter"] = ns*len(edf.header.prefilter[0]) + offset["digmax"]
 			fallthrough
 		case idx < offset["prefilter"]:
-			outterIdx = whichIndex(idx, offset["prefilter"], len(r.header.prefilter))
-			r.header.prefilter[outterIdx][idx%16] = val
+			la := len(edf.header.prefilter[0])
+			outterIdx = whichIndex(idx, offset["digmax"], la)
+			edf.header.prefilter[outterIdx][idx%la] = val
 		case idx == offset["prefilter"]:
-			offset["numsample"] = ns*len(r.header.numsample[0]) + offset["numsample"]
+			offset["numsample"] = ns*len(edf.header.numsample[0]) + offset["prefilter"]
 			fallthrough
 		case idx < offset["numsample"]:
-			outterIdx = whichIndex(idx, offset["numsample"], len(r.header.numsample))
-			r.header.numsample[outterIdx][idx%16] = val
+			la := len(edf.header.numsample[0])
+			outterIdx = whichIndex(idx, offset["prefilter"], la)
+			edf.header.numsample[outterIdx][idx%la] = val
 		case idx == offset["numsample"]:
-			offset["nsreserved"] = ns*len(r.header.nsreserved[0]) + offset["nsreserved"]
+			offset["nsreserved"] = ns*len(edf.header.nsreserved[0]) + offset["numsample"]
 			fallthrough
 		case idx < offset["nsreserved"]:
-			outterIdx = whichIndex(idx, offset["nsreserved"], len(r.header.nsreserved))
-			r.header.nsreserved[outterIdx][idx%16] = val
+			la := len(edf.header.nsreserved[0])
+			outterIdx = whichIndex(idx, offset["numsample"], la)
+			edf.header.nsreserved[outterIdx][idx%la] = val
 			break
 		}
 	}
-	return n, nil
+	return edf
+}
+
+// Marshal edf into byte slice
+func Marshal(edf *EDF) ([]byte, error) {
+	var data []byte
+	data, err := edf.header.AppendContents(data)
+	data = edf.data.AppendContents(data)
+	if err != nil {
+		return data, err
+	}
+	return data, nil
 }
 
 func whichIndex(currIdx int, nsOffset int, arrayLen int) (arrIdx int) {
@@ -182,41 +182,6 @@ func asciiToInt(ascii []byte) (n int, err error) {
 	if err != nil {
 		return 0, err
 	}
-	return n, nil
-}
-
-// NewWriter instantiates a new edf writer
-func NewWriter(w io.Writer, header *Header, data *Data) io.Writer {
-	return &Writer{
-		writer: w,
-		header: header,
-		data:   data,
-	}
-}
-
-// Writer holds edf data send to writable
-type Writer struct {
-	writer io.Writer
-	header *Header
-	data   *Data
-}
-
-// Write edf data from Writer into writable
-func (w *Writer) Write(buf []byte) (n int, err error) {
-	buf, err = w.header.AppendContents(buf)
-	buf = w.data.AppendContents(buf)
-	if err != nil {
-		return 0, err
-	}
-	n0, err := w.writer.Write(buf)
-	if err != nil {
-		return 0, err
-	}
-	n1, err := w.writer.Write(buf)
-	if err != nil {
-		return 0, err
-	}
-	n = n0 + n1
 	return n, nil
 }
 
@@ -637,7 +602,7 @@ func (h *Header) setNumSamples(numsamples []string) error {
 	if err != nil {
 		return err
 	}
-	h.digmax = make([][8]byte, ns)
+	h.numsample = make([][8]byte, ns)
 	for idz, numsample := range numsamples {
 		for idx, val := range numsample {
 			if val < 32 || val > 126 {
@@ -744,4 +709,16 @@ func (d *Data) AppendContents(buf []byte) []byte {
 	var nilSep []byte
 	buf = append(buf, bytes.Join(d.samples, nilSep)...)
 	return buf
+}
+
+func NewEDF(h *Header, d *Data) *EDF {
+	return &EDF{
+		header: h,
+		data:   d,
+	}
+}
+
+type EDF struct {
+	header *Header
+	data   *Data
 }
