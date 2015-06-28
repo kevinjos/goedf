@@ -19,7 +19,7 @@ func (r *reader) Read(buf []byte) (int, error) {
 func TestMarshal(t *testing.T) {
 	ns := 8
 	nr := 256
-	h, err := NewHeader(NS("8"))
+	h, err := NewHeader(NumSignal("8"))
 	if err != nil {
 		t.Error("For TestWrite\n", err)
 		return
@@ -59,14 +59,14 @@ func TestMarshal(t *testing.T) {
 func TestUnmarshal(t *testing.T) {
 	ns := 8
 	nr := 256
-	genStrArr := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
+	strArr := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
 	h, err := NewHeader(Version("0"), LocalPatientID("foo"),
 		LocalRecordID("foo"), Startdate("foo"), Starttime("foo"),
-		Duration("foo"), NS("8"), Labels(genStrArr),
-		TransducerTypes(genStrArr), PhysicalDimensions(genStrArr),
-		PhysicalMins(genStrArr), PhysicalMaxs(genStrArr),
-		DigitalMins(genStrArr), DigitalMaxs(genStrArr),
-		Prefilters(genStrArr), NumSamples(genStrArr))
+		Duration("foo"), NumSignal("8"), Labels(strArr),
+		TransducerTypes(strArr), PhysicalDimensions(strArr),
+		PhysicalMins(strArr), PhysicalMaxs(strArr),
+		DigitalMins(strArr), DigitalMaxs(strArr),
+		Prefilters(strArr), NumSamples(strArr))
 	if err != nil {
 		t.Error("For TestWrite\n", err)
 		return
@@ -85,25 +85,16 @@ func TestUnmarshal(t *testing.T) {
 	edf := NewEDF(h, d)
 	buf, err := Marshal(edf)
 
-	//Unmarshal buf with new edf
-	newH, err := NewHeader()
-	if err != nil {
-		t.Error("For TestWrite\n", err)
-		return
-	}
-	var newData [][]byte
-	newD := NewData(newData)
-	newEDF := NewEDF(newH, newD)
-	err = Unmarshal(buf, newEDF)
+	newEDF, err := Unmarshal(buf)
 	if newEDF.header.numbytes != edf.header.numbytes {
 		t.Error("For TestWrite\n",
 			"Expected: ", edf.header.numbytes,
 			"Got: ", newEDF.header.numbytes)
 	}
-	if newEDF.header.ns != edf.header.ns {
+	if newEDF.header.numsignal != edf.header.numsignal {
 		t.Error("For TestWrite\n",
-			"Expected: ", edf.header.ns,
-			"Got: ", newEDF.header.ns)
+			"Expected: ", edf.header.numsample,
+			"Got: ", newEDF.header.numsample)
 	}
 	for idx, sample := range newEDF.data.samples {
 		for idz, val := range sample {

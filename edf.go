@@ -40,7 +40,11 @@ import (
 var errNotPrintable = errors.New("outside the printable range")
 
 // Unmarshal byteslice into edf
-func Unmarshal(data []byte, edf *EDF) error {
+func Unmarshal(data []byte) (edf *EDF, err error) {
+	h, _ := NewHeader()
+	samples := make([][]byte, 0)
+	d := NewData(samples)
+	edf = NewEDF(h, d)
 	var ns int
 	var outterIdx int
 	offset := edf.header.GetOffsetMap()
@@ -65,18 +69,18 @@ func Unmarshal(data []byte, edf *EDF) error {
 			edf.header.numdatar[idx-offset["reserved"]] = val
 		case idx < offset["duration"]:
 			edf.header.duration[idx-offset["numdatar"]] = val
-		case idx < offset["ns"]:
-			edf.header.ns[idx-offset["duration"]] = val
+		case idx < offset["numsignal"]:
+			edf.header.numsignal[idx-offset["duration"]] = val
 
 		// Done with the non-variable length part of header. Moving on
 		// to header items that have a length that depends on ns.
 		case idx == offset["ns"]:
 			var err error
-			ns, err = asciiToInt(edf.header.ns[:])
+			ns, err = asciiToInt(edf.header.numsignal[:])
 			// Allocate variable length header elements
 			edf.header.allocate(ns)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			offset["label"] = ns*len(edf.header.label[0]) + offset["ns"]
 			fallthrough
@@ -150,7 +154,7 @@ func Unmarshal(data []byte, edf *EDF) error {
 			break
 		}
 	}
-	return nil
+	return edf, nil
 }
 
 // Marshal edf into byte slice
@@ -208,10 +212,10 @@ func NewHeader(options ...func(*Header) error) (*Header, error) {
 	// The caller should specify the sample number
 	// The reader will not know yet
 	// The writer will, and should pass SetNS() to NewHeader
-	if h.ns == [4]byte{} {
+	if h.numsignal == [4]byte{} {
 		return h, nil
 	}
-	ns, err := asciiToInt(h.ns[:])
+	ns, err := asciiToInt(h.numsignal[:])
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +236,7 @@ type Header struct {
 	reserved       [44]byte
 	numdatar       [8]byte
 	duration       [8]byte
-	ns             [4]byte
+	numsignal      [4]byte
 	label          [][16]byte
 	transducerType [][80]byte
 	phydim         [][8]byte
@@ -348,22 +352,22 @@ func (h *Header) setDuration(dur string) error {
 	return nil
 }
 
-func (h *Header) setNS(ns string) error {
+func (h *Header) setNumSig(ns string) error {
 	var idl int
 	for idx, val := range ns {
 		if val < 32 || val > 126 {
 			return errNotPrintable
 		}
-		h.ns[idx] = ns[idx]
+		h.numsignal[idx] = ns[idx]
 		idl = idx
 	}
-	fillWithSpaces(h.ns[idl+1:])
+	fillWithSpaces(h.numsignal[idl+1:])
 	return nil
 }
 
 func (h *Header) setLabels(labels []string) error {
 	var idl int
-	ns, err := asciiToInt(h.ns[:])
+	ns, err := asciiToInt(h.numsignal[:])
 	if err != nil {
 		return err
 	}
@@ -383,7 +387,7 @@ func (h *Header) setLabels(labels []string) error {
 
 func (h *Header) setTransducerTypes(tts []string) error {
 	var idl int
-	ns, err := asciiToInt(h.ns[:])
+	ns, err := asciiToInt(h.numsignal[:])
 	if err != nil {
 		return err
 	}
@@ -403,7 +407,7 @@ func (h *Header) setTransducerTypes(tts []string) error {
 
 func (h *Header) setPhysicalDimensions(phydims []string) error {
 	var idl int
-	ns, err := asciiToInt(h.ns[:])
+	ns, err := asciiToInt(h.numsignal[:])
 	if err != nil {
 		return err
 	}
@@ -423,7 +427,7 @@ func (h *Header) setPhysicalDimensions(phydims []string) error {
 
 func (h *Header) setPhysicalMins(phymins []string) error {
 	var idl int
-	ns, err := asciiToInt(h.ns[:])
+	ns, err := asciiToInt(h.numsignal[:])
 	if err != nil {
 		return err
 	}
@@ -443,7 +447,7 @@ func (h *Header) setPhysicalMins(phymins []string) error {
 
 func (h *Header) setPhysicalMaxs(phymaxs []string) error {
 	var idl int
-	ns, err := asciiToInt(h.ns[:])
+	ns, err := asciiToInt(h.numsignal[:])
 	if err != nil {
 		return err
 	}
@@ -463,7 +467,7 @@ func (h *Header) setPhysicalMaxs(phymaxs []string) error {
 
 func (h *Header) setDigitalMins(digmins []string) error {
 	var idl int
-	ns, err := asciiToInt(h.ns[:])
+	ns, err := asciiToInt(h.numsignal[:])
 	if err != nil {
 		return err
 	}
@@ -483,7 +487,7 @@ func (h *Header) setDigitalMins(digmins []string) error {
 
 func (h *Header) setDigitalMaxs(digmaxs []string) error {
 	var idl int
-	ns, err := asciiToInt(h.ns[:])
+	ns, err := asciiToInt(h.numsignal[:])
 	if err != nil {
 		return err
 	}
@@ -503,7 +507,7 @@ func (h *Header) setDigitalMaxs(digmaxs []string) error {
 
 func (h *Header) setPrefilters(prefilters []string) error {
 	var idl int
-	ns, err := asciiToInt(h.ns[:])
+	ns, err := asciiToInt(h.numsignal[:])
 	if err != nil {
 		return err
 	}
@@ -523,7 +527,7 @@ func (h *Header) setPrefilters(prefilters []string) error {
 
 func (h *Header) setNumSamples(numsamples []string) error {
 	var idl int
-	ns, err := asciiToInt(h.ns[:])
+	ns, err := asciiToInt(h.numsignal[:])
 	if err != nil {
 		return err
 	}
@@ -552,7 +556,7 @@ func (h *Header) GetOffsetMap() map[string]int {
 	offset["reserved"] = len(h.reserved) + offset["numbytes"]
 	offset["numdatar"] = len(h.numdatar) + offset["reserved"]
 	offset["duration"] = len(h.duration) + offset["numdatar"]
-	offset["ns"] = len(h.ns) + offset["duration"]
+	offset["numsignal"] = len(h.numsignal) + offset["duration"]
 	return offset
 }
 
@@ -580,8 +584,8 @@ func (h *Header) AppendContents(contents []byte) (buf []byte, err error) {
 	contents = append(contents, h.reserved[:]...)
 	contents = append(contents, h.numdatar[:]...)
 	contents = append(contents, h.duration[:]...)
-	contents = append(contents, h.ns[:]...)
-	ns, err := asciiToInt(h.ns[:])
+	contents = append(contents, h.numsignal[:]...)
+	ns, err := asciiToInt(h.numsignal[:])
 	if err != nil {
 		return contents, err
 	}
@@ -629,7 +633,7 @@ func (h *Header) calcNumBytes(ns int) (nb int) {
 	nb += len(h.reserved)
 	nb += len(h.numdatar)
 	nb += len(h.duration)
-	nb += len(h.ns)
+	nb += len(h.numsignal)
 	nb += ns * len(h.label[0])
 	nb += ns * len(h.transducerType[0])
 	nb += ns * len(h.phydim[0])
@@ -678,6 +682,13 @@ func Starttime(starttime string) func(*Header) error {
 	}
 }
 
+// NumDataR setter
+func NumDataRecord(nr string) func(*Header) error {
+	return func(h *Header) error {
+		return h.setNumDataRecord(nr)
+	}
+}
+
 // Duration setter
 func Duration(dur string) func(*Header) error {
 	return func(h *Header) error {
@@ -685,10 +696,10 @@ func Duration(dur string) func(*Header) error {
 	}
 }
 
-// Duration setter
-func NS(ns string) func(*Header) error {
+// NumSig setter
+func NumSignal(ns string) func(*Header) error {
 	return func(h *Header) error {
-		return h.setNS(ns)
+		return h.setNumSig(ns)
 	}
 }
 
