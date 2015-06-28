@@ -50,6 +50,8 @@ func TestMarshal(t *testing.T) {
 	if len(buf) != nb {
 		t.Error("For TestWrite\n",
 			"Expected: ", nb,
+			"From header: ", edf.header.numbytes,
+			"From data: ", ns*nr,
 			"Got: ", len(buf))
 	}
 }
