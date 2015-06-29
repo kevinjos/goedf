@@ -33,127 +33,86 @@ nr of samples[ns] * integer : last signal
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strconv"
-	"strings"
 )
 
 var errNotPrintable = errors.New("outside the printable range")
 
 // Unmarshal byteslice into edf
 func Unmarshal(data []byte) (edf *EDF, err error) {
-	h, _ := NewHeader()
+	foffset := fixedHeaderOffsets()
+	fixed := func(os int) (x, res []byte) {
+		return data[:os], data[os:]
+	}
+
+	version, data := fixed(foffset["version"])
+	lpid, data := fixed(foffset["LPID"])
+	lrid, data := fixed(foffset["LRID"])
+	startdate, data := fixed(foffset["startdate"])
+	starttime, data := fixed(foffset["starttime"])
+	numbytes, data := fixed(foffset["numbytes"])
+	reserved, data := fixed(foffset["reserved"])
+	numdatar, data := fixed(foffset["numdatar"])
+	duration, data := fixed(foffset["duration"])
+	numsignal, data := fixed(foffset["numsignal"])
+
+	ns, err := asciiToInt(numsignal)
+	if err != nil {
+		return nil, err
+	}
+
+	voffset := variableHeaderOffsets(numsignal)
+	variable := func(os int) (x []string, res []byte) {
+		x = make([]string, ns)
+		osps := os / ns
+		for idx, _ := range x {
+			x[idx] = string(data[:osps])
+			data = data[osps:]
+		}
+		return x, data
+	}
+
+	label, data := variable(voffset["label"])
+	transducerType, data := variable(voffset["transducerType"])
+	phydim, data := variable(voffset["phydim"])
+	phymin, data := variable(voffset["phymin"])
+	phymax, data := variable(voffset["phymax"])
+	digmin, data := variable(voffset["digmin"])
+	digmax, data := variable(voffset["digmax"])
+	prefilter, data := variable(voffset["prefilter"])
+	numsample, data := variable(voffset["numsample"])
+	nsreserved, data := variable(voffset["nsreserved"])
+
+	h, err := NewHeader(Version(string(version)),
+		LocalPatientID(string(lpid)),
+		LocalRecordID(string(lrid)),
+		Startdate(string(startdate)),
+		Starttime(string(starttime)),
+		NumBytes(string(numbytes)),
+		Reserved(string(reserved)),
+		NumDataRecord(string(numdatar)),
+		Duration(string(duration)),
+		NumSignal(string(numsignal)),
+		Labels(label),
+		TransducerTypes(transducerType),
+		PhysicalDimensions(phydim),
+		PhysicalMins(phymin),
+		PhysicalMaxs(phymax),
+		DigitalMins(digmin),
+		DigitalMaxs(digmax),
+		Prefilters(prefilter),
+		NumSamples(numsample),
+		NSReserved(nsreserved))
+
+	if err != nil {
+		return nil, err
+	}
+
 	samples := make([][]byte, 0)
 	d := NewData(samples)
 	edf = NewEDF(h, d)
-	var ns int
-	var outterIdx int
-	offset := edf.header.GetOffsetMap()
 
-	for idx, val := range data {
-		switch {
-		case idx < offset["version"]:
-			edf.header.version[idx] = val
-		case idx < offset["LPID"]:
-			edf.header.LPID[idx-offset["version"]] = val // edf+ requires formatting
-		case idx < offset["LRID"]:
-			edf.header.LRID[idx-offset["LPID"]] = val // edf+ requires formatting
-		case idx < offset["startdate"]:
-			edf.header.startdate[idx-offset["LRID"]] = val // edf+ formatting
-		case idx < offset["starttime"]:
-			edf.header.starttime[idx-offset["startdate"]] = val // edf+
-		case idx < offset["numbytes"]:
-			edf.header.numbytes[idx-offset["starttime"]] = val // Check numbytes
-		case idx < offset["reserved"]:
-			edf.header.reserved[idx-offset["numbytes"]] = val
-		case idx < offset["numdatar"]:
-			edf.header.numdatar[idx-offset["reserved"]] = val
-		case idx < offset["duration"]:
-			edf.header.duration[idx-offset["numdatar"]] = val
-		case idx < offset["numsignal"]:
-			edf.header.numsignal[idx-offset["duration"]] = val
-
-		// Done with the non-variable length part of header. Moving on
-		// to header items that have a length that depends on ns.
-		case idx == offset["ns"]:
-			var err error
-			ns, err = asciiToInt(edf.header.numsignal[:])
-			// Allocate variable length header elements
-			edf.header.allocate(ns)
-			if err != nil {
-				return nil, err
-			}
-			offset["label"] = ns*len(edf.header.label[0]) + offset["ns"]
-			fallthrough
-		case idx < offset["label"]:
-			la := len(edf.header.label[0])
-			outterIdx = whichIndex(idx, offset["ns"], la)
-			edf.header.label[outterIdx][idx%la] = val
-		case idx == offset["label"]:
-			offset["transducerType"] = ns*len(edf.header.transducerType[0]) + offset["label"]
-			fallthrough
-		case idx < offset["transducerType"]:
-			la := len(edf.header.transducerType[0])
-			outterIdx = whichIndex(idx, offset["label"], la)
-			edf.header.transducerType[outterIdx][idx%la] = val
-		case idx == offset["transducerType"]:
-			offset["phydim"] = ns*len(edf.header.phydim[0]) + offset["transducerType"]
-			fallthrough
-		case idx < offset["phydim"]:
-			la := len(edf.header.phydim[0])
-			outterIdx = whichIndex(idx, offset["transducerType"], la)
-			edf.header.phydim[outterIdx][idx%la] = val
-		case idx == offset["phydim"]:
-			offset["phymin"] = ns*len(edf.header.phymin[0]) + offset["phydim"]
-			fallthrough
-		case idx < offset["phymin"]:
-			la := len(edf.header.phymin[0])
-			outterIdx = whichIndex(idx, offset["phydim"], la)
-			edf.header.phymin[outterIdx][idx%la] = val
-		case idx == offset["phymin"]:
-			offset["phymax"] = ns*len(edf.header.phymax[0]) + offset["phymin"]
-			fallthrough
-		case idx < offset["phymax"]:
-			la := len(edf.header.phymax[0])
-			outterIdx = whichIndex(idx, offset["phymin"], la)
-			edf.header.phymax[outterIdx][idx%la] = val
-		case idx == offset["phymax"]:
-			offset["digmin"] = ns*len(edf.header.digmin[0]) + offset["phymax"]
-			fallthrough
-		case idx < offset["digmin"]:
-			la := len(edf.header.digmin[0])
-			outterIdx = whichIndex(idx, offset["phymax"], la)
-			edf.header.digmin[outterIdx][idx%la] = val
-		case idx == offset["digmin"]:
-			offset["digmax"] = ns*len(edf.header.digmax[0]) + offset["digmin"]
-			fallthrough
-		case idx < offset["digmax"]:
-			la := len(edf.header.digmax[0])
-			outterIdx = whichIndex(idx, offset["digmin"], la)
-			edf.header.digmax[outterIdx][idx%la] = val
-		case idx == offset["digmax"]:
-			offset["prefilter"] = ns*len(edf.header.prefilter[0]) + offset["digmax"]
-			fallthrough
-		case idx < offset["prefilter"]:
-			la := len(edf.header.prefilter[0])
-			outterIdx = whichIndex(idx, offset["digmax"], la)
-			edf.header.prefilter[outterIdx][idx%la] = val
-		case idx == offset["prefilter"]:
-			offset["numsample"] = ns*len(edf.header.numsample[0]) + offset["prefilter"]
-			fallthrough
-		case idx < offset["numsample"]:
-			la := len(edf.header.numsample[0])
-			outterIdx = whichIndex(idx, offset["prefilter"], la)
-			edf.header.numsample[outterIdx][idx%la] = val
-		case idx == offset["numsample"]:
-			offset["nsreserved"] = ns*len(edf.header.nsreserved[0]) + offset["numsample"]
-			fallthrough
-		case idx < offset["nsreserved"]:
-			la := len(edf.header.nsreserved[0])
-			outterIdx = whichIndex(idx, offset["numsample"], la)
-			edf.header.nsreserved[outterIdx][idx%la] = val
-			break
-		}
-	}
 	return edf, nil
 }
 
@@ -209,9 +168,6 @@ func NewHeader(options ...func(*Header) error) (*Header, error) {
 			return nil, err
 		}
 	}
-	// The caller should specify the sample number
-	// The reader will not know yet
-	// The writer will, and should pass SetNS() to NewHeader
 	if h.numsignal == [4]byte{} {
 		return h, nil
 	}
@@ -246,14 +202,14 @@ type Header struct {
 	digmax         [][8]byte
 	prefilter      [][80]byte
 	numsample      [][8]byte
-	nsreserved     [][16]byte
+	nsreserved     [][32]byte
 }
 
 func (h *Header) setVersion(number string) error {
 	var idl int
 	for idx, val := range number {
 		if val < 32 || val > 126 {
-			return errNotPrintable
+			return fmt.Errorf("%s for %v in setVersion\n", errNotPrintable, val)
 		}
 		h.version[idx] = number[idx]
 		idl = idx
@@ -266,7 +222,7 @@ func (h *Header) setLPID(localPatientID string) error {
 	var idl int
 	for idx, val := range localPatientID {
 		if val < 32 || val > 126 {
-			return errNotPrintable
+			return fmt.Errorf("%s for %v in setLPID\n", errNotPrintable, val)
 		}
 		h.LPID[idx] = localPatientID[idx]
 		idl = idx
@@ -279,7 +235,7 @@ func (h *Header) setLRID(localRecordID string) error {
 	var idl int
 	for idx, val := range localRecordID {
 		if val < 32 || val > 126 {
-			return errNotPrintable
+			return fmt.Errorf("%s for %v in setLRID\n", errNotPrintable, val)
 		}
 		h.LRID[idx] = localRecordID[idx]
 		idl = idx
@@ -292,7 +248,7 @@ func (h *Header) setStartdate(startdate string) error {
 	var idl int
 	for idx, val := range startdate {
 		if val < 32 || val > 126 {
-			return errNotPrintable
+			return fmt.Errorf("%s for %v in setStartdate\n", errNotPrintable, val)
 		}
 		h.startdate[idx] = startdate[idx]
 		idl = idx
@@ -305,7 +261,7 @@ func (h *Header) setStarttime(starttime string) error {
 	var idl int
 	for idx, val := range starttime {
 		if val < 32 || val > 126 {
-			return errNotPrintable
+			return fmt.Errorf("%s for %v in setStarttime\n", errNotPrintable, val)
 		}
 		h.starttime[idx] = starttime[idx]
 		idl = idx
@@ -318,7 +274,7 @@ func (h *Header) setNumBytes(numbytes string) error {
 	var idl int
 	for idx, val := range numbytes {
 		if val < 32 || val > 126 {
-			return errNotPrintable
+			return fmt.Errorf("%s for %v in setNumBytes\n", errNotPrintable, val)
 		}
 		h.numbytes[idx] = numbytes[idx]
 		idl = idx
@@ -331,7 +287,7 @@ func (h *Header) setNumDataRecord(numdatar string) error {
 	var idl int
 	for idx, val := range numdatar {
 		if val < 32 || val > 126 {
-			return errNotPrintable
+			return fmt.Errorf("%s for %v in setNumDataRecord\n", errNotPrintable, val)
 		}
 		h.numdatar[idx] = numdatar[idx]
 		idl = idx
@@ -344,7 +300,7 @@ func (h *Header) setDuration(dur string) error {
 	var idl int
 	for idx, val := range dur {
 		if val < 32 || val > 126 {
-			return errNotPrintable
+			return fmt.Errorf("%s for %v in setDuration\n", errNotPrintable, val)
 		}
 		h.duration[idx] = dur[idx]
 	}
@@ -356,12 +312,30 @@ func (h *Header) setNumSig(ns string) error {
 	var idl int
 	for idx, val := range ns {
 		if val < 32 || val > 126 {
-			return errNotPrintable
+			return fmt.Errorf("%s for %v in setNumSig\n", errNotPrintable, val)
 		}
 		h.numsignal[idx] = ns[idx]
 		idl = idx
 	}
 	fillWithSpaces(h.numsignal[idl+1:])
+	return nil
+}
+
+func (h *Header) setReserved(res string) error {
+	var idl int
+	for idx, val := range res {
+		if val < 32 || val > 126 {
+			return fmt.Errorf("%s for %v in setReserved\n", errNotPrintable, val)
+		}
+		h.reserved[idx] = res[idx]
+		idl = idx
+	}
+	if idl == 0 {
+		fillWithSpaces(h.reserved[:])
+	} else {
+		fillWithSpaces(h.reserved[idl+1:])
+	}
+
 	return nil
 }
 
@@ -375,7 +349,7 @@ func (h *Header) setLabels(labels []string) error {
 	for idz, label := range labels {
 		for idx, val := range label {
 			if val < 32 || val > 126 {
-				return errNotPrintable
+				return fmt.Errorf("%s for %v in setLabels\n", errNotPrintable, val)
 			}
 			h.label[idz][idx] = label[idx]
 			idl = idx
@@ -395,7 +369,7 @@ func (h *Header) setTransducerTypes(tts []string) error {
 	for idz, tt := range tts {
 		for idx, val := range tt {
 			if val < 32 || val > 126 {
-				return errNotPrintable
+				return fmt.Errorf("%s for %v in setTransTypes\n", errNotPrintable, val)
 			}
 			h.transducerType[idz][idx] = tt[idx]
 			idl = idx
@@ -415,7 +389,7 @@ func (h *Header) setPhysicalDimensions(phydims []string) error {
 	for idz, phydim := range phydims {
 		for idx, val := range phydim {
 			if val < 32 || val > 126 {
-				return errNotPrintable
+				return fmt.Errorf("%s for %v in setPhyDim\n", errNotPrintable, val)
 			}
 			h.phydim[idz][idx] = phydim[idx]
 			idl = idx
@@ -435,6 +409,7 @@ func (h *Header) setPhysicalMins(phymins []string) error {
 	for idz, phymin := range phymins {
 		for idx, val := range phymin {
 			if val < 32 || val > 126 {
+				return fmt.Errorf("%s for %v in setPhyMin\n", errNotPrintable, val)
 				return errNotPrintable
 			}
 			h.phymin[idz][idx] = phymin[idx]
@@ -455,7 +430,7 @@ func (h *Header) setPhysicalMaxs(phymaxs []string) error {
 	for idz, phymax := range phymaxs {
 		for idx, val := range phymax {
 			if val < 32 || val > 126 {
-				return errNotPrintable
+				return fmt.Errorf("%s for %v in setPhyMax\n", errNotPrintable, val)
 			}
 			h.phymax[idz][idx] = phymax[idx]
 			idl = idx
@@ -475,7 +450,7 @@ func (h *Header) setDigitalMins(digmins []string) error {
 	for idz, digmin := range digmins {
 		for idx, val := range digmin {
 			if val < 32 || val > 126 {
-				return errNotPrintable
+				return fmt.Errorf("%s for %v in setDigMin\n", errNotPrintable, val)
 			}
 			h.digmin[idz][idx] = digmin[idx]
 			idl = idx
@@ -495,7 +470,7 @@ func (h *Header) setDigitalMaxs(digmaxs []string) error {
 	for idz, digmax := range digmaxs {
 		for idx, val := range digmax {
 			if val < 32 || val > 126 {
-				return errNotPrintable
+				return fmt.Errorf("%s for %v in setDigMax\n", errNotPrintable, val)
 			}
 			h.digmax[idz][idx] = digmax[idx]
 			idl = idx
@@ -515,7 +490,7 @@ func (h *Header) setPrefilters(prefilters []string) error {
 	for idz, prefilter := range prefilters {
 		for idx, val := range prefilter {
 			if val < 32 || val > 126 {
-				return errNotPrintable
+				return fmt.Errorf("%s for %v in setPrefilters\n", errNotPrintable, val)
 			}
 			h.prefilter[idz][idx] = prefilter[idx]
 			idl = idx
@@ -535,7 +510,7 @@ func (h *Header) setNumSamples(numsamples []string) error {
 	for idz, numsample := range numsamples {
 		for idx, val := range numsample {
 			if val < 32 || val > 126 {
-				return errNotPrintable
+				return fmt.Errorf("%s for %v in setNumSamples\n", errNotPrintable, val)
 			}
 			h.numsample[idz][idx] = numsample[idx]
 			idl = idx
@@ -545,32 +520,91 @@ func (h *Header) setNumSamples(numsamples []string) error {
 	return nil
 }
 
-func (h *Header) GetOffsetMap() map[string]int {
-	offset := make(map[string]int)
-	offset["version"] = len(h.version)
-	offset["LPID"] = len(h.LPID) + offset["version"]
-	offset["LRID"] = len(h.LRID) + offset["LPID"]
-	offset["startdate"] = len(h.startdate) + offset["LRID"]
-	offset["starttime"] = len(h.starttime) + offset["startdate"]
-	offset["numbytes"] = len(h.numbytes) + offset["starttime"]
-	offset["reserved"] = len(h.reserved) + offset["numbytes"]
-	offset["numdatar"] = len(h.numdatar) + offset["reserved"]
-	offset["duration"] = len(h.duration) + offset["numdatar"]
-	offset["numsignal"] = len(h.numsignal) + offset["duration"]
-	return offset
+func (h *Header) setNSReserved(nsreserved []string) error {
+	var idl int
+	ns, err := asciiToInt(h.numsignal[:])
+	if err != nil {
+		return err
+	}
+	h.nsreserved = make([][32]byte, ns)
+	for idz, nsres := range nsreserved {
+		for idx, val := range nsres {
+			if val < 32 || val > 126 {
+				return fmt.Errorf("%s for %v in setNSReserved\n", errNotPrintable, val)
+			}
+			h.nsreserved[idz][idx] = nsres[idx]
+			idl = idx
+		}
+		if idl == 0 {
+			fillWithSpaces(h.nsreserved[idz][:])
+		} else {
+			fillWithSpaces(h.nsreserved[idz][idl+1:])
+		}
+	}
+	return nil
 }
 
 func (h *Header) allocate(ns int) {
-	h.label = make([][len(h.label[0])]byte, ns)
-	h.transducerType = make([][len(h.transducerType[0])]byte, ns)
-	h.phydim = make([][len(h.phydim[0])]byte, ns)
-	h.phymin = make([][len(h.phymin[0])]byte, ns)
-	h.phymax = make([][len(h.phymax[0])]byte, ns)
-	h.digmin = make([][len(h.digmin[0])]byte, ns)
-	h.digmax = make([][len(h.digmax[0])]byte, ns)
-	h.prefilter = make([][len(h.prefilter[0])]byte, ns)
-	h.numsample = make([][len(h.numsample[0])]byte, ns)
-	h.nsreserved = make([][len(h.nsreserved[0])]byte, ns)
+	if len(h.label) == 0 {
+		h.label = make([][len(h.label[0])]byte, ns)
+		for _, label := range h.label {
+			fillWithSpaces(label[:])
+		}
+	}
+	if len(h.transducerType) == 0 {
+		h.transducerType = make([][len(h.transducerType[0])]byte, ns)
+		for _, transducerType := range h.transducerType {
+			fillWithSpaces(transducerType[:])
+		}
+	}
+	if len(h.phydim) == 0 {
+		h.phydim = make([][len(h.phydim[0])]byte, ns)
+		for _, phydim := range h.phydim {
+			fillWithSpaces(phydim[:])
+		}
+	}
+	if len(h.phymin) == 0 {
+		h.phymin = make([][len(h.phymin[0])]byte, ns)
+		for _, phymin := range h.phymin {
+			fillWithSpaces(phymin[:])
+		}
+	}
+	if len(h.phymax) == 0 {
+		h.phymax = make([][len(h.phymax[0])]byte, ns)
+		for _, phymax := range h.phymax {
+			fillWithSpaces(phymax[:])
+		}
+	}
+	if len(h.digmin) == 0 {
+		h.digmin = make([][len(h.digmin[0])]byte, ns)
+		for _, digmin := range h.digmin {
+			fillWithSpaces(digmin[:])
+		}
+	}
+	if len(h.digmax) == 0 {
+		h.digmax = make([][len(h.digmax[0])]byte, ns)
+		for _, digmax := range h.digmax {
+			fillWithSpaces(digmax[:])
+		}
+	}
+	if len(h.prefilter) == 0 {
+		h.prefilter = make([][len(h.prefilter[0])]byte, ns)
+		for _, prefilter := range h.prefilter {
+			fillWithSpaces(prefilter[:])
+		}
+	}
+	if len(h.numsample) == 0 {
+		h.numsample = make([][len(h.numsample[0])]byte, ns)
+		for _, numsample := range h.numsample {
+			fillWithSpaces(numsample[:])
+		}
+	}
+	if len(h.nsreserved) == 0 {
+		h.nsreserved = make([][len(h.nsreserved[0])]byte, ns)
+		for _, nsreserved := range h.nsreserved {
+			fillWithSpaces(nsreserved[:])
+		}
+	}
 }
 
 // AppendContents of header in contiguous byte slice
@@ -682,6 +716,13 @@ func Starttime(starttime string) func(*Header) error {
 	}
 }
 
+// NumBytes setter
+func NumBytes(numbytes string) func(*Header) error {
+	return func(h *Header) error {
+		return h.setNumBytes(numbytes)
+	}
+}
+
 // NumDataR setter
 func NumDataRecord(nr string) func(*Header) error {
 	return func(h *Header) error {
@@ -700,6 +741,13 @@ func Duration(dur string) func(*Header) error {
 func NumSignal(ns string) func(*Header) error {
 	return func(h *Header) error {
 		return h.setNumSig(ns)
+	}
+}
+
+// Reserved setter
+func Reserved(res string) func(*Header) error {
+	return func(h *Header) error {
+		return h.setReserved(res)
 	}
 }
 
@@ -766,29 +814,9 @@ func NumSamples(numsamples []string) func(*Header) error {
 	}
 }
 
-func fillWithSpaces(input []byte) {
-	for idx, _ := range input {
-		input[idx] = '\x20'
+// NSReserved setter
+func NSReserved(nsreserved []string) func(*Header) error {
+	return func(h *Header) error {
+		return h.setNSReserved(nsreserved)
 	}
-}
-
-func whichIndex(currIdx int, nsOffset int, arrayLen int) (arrIdx int) {
-	return (currIdx - nsOffset) / arrayLen
-}
-
-func asciiToInt(ascii []byte) (n int, err error) {
-	sArr := make([]string, len(ascii))
-	for idx, val := range ascii {
-		if val == '\x00' || val == '\x20' {
-			sArr = sArr[:idx]
-			break
-		}
-		sArr[idx] = string(val)
-	}
-	s := strings.Join(sArr, "")
-	n, err = strconv.Atoi(s)
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
 }

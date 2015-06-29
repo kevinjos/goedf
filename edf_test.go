@@ -61,16 +61,18 @@ func TestUnmarshal(t *testing.T) {
 	nr := 256
 	strArr := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
 	h, err := NewHeader(Version("0"), LocalPatientID("foo"),
-		LocalRecordID("foo"), Startdate("foo"), Starttime("foo"),
-		Duration("foo"), NumSignal("8"), Labels(strArr),
+		LocalRecordID("foo"), Startdate("foo"), Starttime("foo"), NumDataRecord("1"),
+		Duration("foo"), NumSignal("8"), Reserved(""), Labels(strArr),
 		TransducerTypes(strArr), PhysicalDimensions(strArr),
 		PhysicalMins(strArr), PhysicalMaxs(strArr),
 		DigitalMins(strArr), DigitalMaxs(strArr),
-		Prefilters(strArr), NumSamples(strArr))
+		Prefilters(strArr), NumSamples(strArr), NSReserved(strArr))
+
 	if err != nil {
-		t.Error("For TestWrite\n", err)
+		t.Error("For TestUnmarshal %s\n", err)
 		return
 	}
+
 	data := make([][]byte, ns)
 	channel := make([]byte, ns*nr)
 	for idx := range data {
@@ -84,8 +86,16 @@ func TestUnmarshal(t *testing.T) {
 	d := NewData(data)
 	edf := NewEDF(h, d)
 	buf, err := Marshal(edf)
+	if err != nil {
+		t.Errorf("marshal in unmarshal: %s", err)
+		return
+	}
 
 	newEDF, err := Unmarshal(buf)
+	if err != nil {
+		t.Errorf("unmarshal in unmarshal: %s", err)
+		return
+	}
 	if newEDF.header.numbytes != edf.header.numbytes {
 		t.Error("For TestWrite\n",
 			"Expected: ", edf.header.numbytes,
