@@ -34,8 +34,8 @@ func TestMarshal(t *testing.T) {
 			datum[idz] = byte(idz)
 		}
 	}
-	d := NewData(data)
-	edf := NewEDF(h, d)
+	edf := NewEDF(h)
+	edf.AppendRecord(NewData(data))
 	buf, err := Marshal(edf)
 	if err != nil {
 		t.Error("For TestWrite\n", err)
@@ -83,8 +83,8 @@ func TestUnmarshal(t *testing.T) {
 			datum[idz] = byte(idz)
 		}
 	}
-	d := NewData(data)
-	edf := NewEDF(h, d)
+	edf := NewEDF(h)
+	edf.AppendRecord(NewData(data))
 	buf, err := Marshal(edf)
 	if err != nil {
 		t.Errorf("marshal in unmarshal: %s", err)
@@ -106,12 +106,14 @@ func TestUnmarshal(t *testing.T) {
 			"Expected: ", edf.header.numsample,
 			"Got: ", newEDF.header.numsample)
 	}
-	for idx, sample := range newEDF.data.samples {
-		for idz, val := range sample {
-			if val != edf.data.samples[idx][idz] {
-				t.Error("For TestWrite\n",
-					"Expected: ", edf.data.samples[idx][idz],
-					"Got: ", val)
+	for idy, data := range newEDF.dataRecords {
+		for idx, sample := range data.signals {
+			for idz, val := range sample {
+				if val != edf.dataRecords[idy].signals[idx][idz] {
+					t.Error("For TestWrite\n",
+						"Expected: ", edf.dataRecords[idy].signals[idx][idz],
+						"Got: ", val)
+				}
 			}
 		}
 	}

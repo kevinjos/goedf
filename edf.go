@@ -109,52 +109,61 @@ func Unmarshal(data []byte) (edf *EDF, err error) {
 		return nil, err
 	}
 
-	samples := make([][]byte, 0)
-	d := NewData(samples)
-	edf = NewEDF(h, d)
+	edf = NewEDF(h)
 
 	return edf, nil
 }
 
 // Marshal edf into byte slice
-func Marshal(edf *EDF) ([]byte, error) {
-	var data []byte
-	data, err := edf.header.AppendContents(data)
-	data = edf.data.AppendContents(data)
+func Marshal(edf *EDF) (buf []byte, err error) {
+	buf, err = edf.header.AppendContents(buf)
+	buf = edf.ConcatRecords(buf)
 	if err != nil {
-		return data, err
+		return buf, err
 	}
-	return data, nil
+	return buf, nil
 }
 
-func NewEDF(h *Header, d *Data) *EDF {
+func NewEDF(h *Header) *EDF {
+	d := make([]*Data, 0)
 	return &EDF{
-		header: h,
-		data:   d,
+		header:      h,
+		dataRecords: d,
 	}
 }
 
 type EDF struct {
-	header *Header
-	data   *Data
+	header      *Header
+	dataRecords []*Data
+}
+
+func (e *EDF) AppendRecord(d *Data) {
+	e.dataRecords = append(e.dataRecords, d)
+}
+
+func (e *EDF) ConcatRecords(buf []byte) (d []byte) {
+	for _, record := range e.dataRecords {
+		buf = record.AppendContents(buf)
+	}
+	return buf
 }
 
 // NewData ...
-func NewData(samples [][]byte) *Data {
+func NewData(signals [][]byte) *Data {
 	return &Data{
-		samples: samples,
+		signals: signals,
 	}
 }
 
 // Data holds edf data record
 type Data struct {
-	samples [][]byte
+	signals [][]byte
 }
 
 // AppendContents ...
 func (d *Data) AppendContents(buf []byte) []byte {
 	var nilSep []byte
-	buf = append(buf, bytes.Join(d.samples, nilSep)...)
+	buf = append(buf, bytes.Join(d.signals, nilSep)...)
 	return buf
 }
 
@@ -163,21 +172,19 @@ func (d *Data) AppendContents(buf []byte) []byte {
 // If optional parameters are left blank, default is ASCII NUL
 func NewHeader(options ...func(*Header) error) (*Header, error) {
 	h := &Header{}
+	h.allocateFixed()
 	for _, option := range options {
 		if err := option(h); err != nil {
 			return nil, err
 		}
 	}
-	if h.numsignal == [4]byte{} {
-		return h, nil
-	}
 	ns, err := asciiToInt(h.numsignal[:])
 	if err != nil {
-		return nil, err
+		return h, err
 	}
-	h.allocate(ns)
 	nb := h.calcNumBytes(ns)
 	h.setNumBytes(strconv.Itoa(nb))
+	h.allocateVariable(ns)
 	return h, nil
 }
 
@@ -410,7 +417,6 @@ func (h *Header) setPhysicalMins(phymins []string) error {
 		for idx, val := range phymin {
 			if val < 32 || val > 126 {
 				return fmt.Errorf("%s for %v in setPhyMin\n", errNotPrintable, val)
-				return errNotPrintable
 			}
 			h.phymin[idz][idx] = phymin[idx]
 			idl = idx
@@ -543,8 +549,20 @@ func (h *Header) setNSReserved(nsreserved []string) error {
 	}
 	return nil
 }
+func (h *Header) allocateFixed() {
+	fillWithSpaces(h.version[:])
+	fillWithSpaces(h.LPID[:])
+	fillWithSpaces(h.LRID[:])
+	fillWithSpaces(h.startdate[:])
+	fillWithSpaces(h.starttime[:])
+	fillWithSpaces(h.numbytes[:])
+	fillWithSpaces(h.reserved[:])
+	fillWithSpaces(h.numdatar[:])
+	fillWithSpaces(h.duration[:])
+	fillWithSpaces(h.numsignal[:])
+}
 
-func (h *Header) allocate(ns int) {
+func (h *Header) allocateVariable(ns int) {
 	if len(h.label) == 0 {
 		h.label = make([][len(h.label[0])]byte, ns)
 		for _, label := range h.label {
