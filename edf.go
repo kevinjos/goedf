@@ -32,6 +32,7 @@ nr of samples[ns] * integer : last signal
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"strconv"
@@ -120,7 +121,7 @@ func Marshal(edf *EDF) (buf []byte, err error) {
 	if err != nil {
 		return nil, err
 	}
-	buf = edf.ConcatRecords(buf)
+	buf = edf.ConcatDataRecords(buf)
 	return buf, nil
 }
 
@@ -137,7 +138,7 @@ type EDF struct {
 	dataRecords []*Data
 }
 
-func (e *EDF) ConcatRecords(buf []byte) []byte {
+func (e *EDF) ConcatDataRecords(buf []byte) []byte {
 	for _, record := range e.dataRecords {
 		buf = record.AppendContents(buf)
 	}
@@ -146,14 +147,17 @@ func (e *EDF) ConcatRecords(buf []byte) []byte {
 
 // NewData ...
 func NewData(signals [][]byte) *Data {
+	defaultNumBytes := 2
 	return &Data{
-		signals: signals,
+		signals:  signals,
+		numbytes: defaultNumBytes,
 	}
 }
 
 // Data holds edf data record
 type Data struct {
-	signals [][]byte
+	signals  [][]byte
+	numbytes int
 }
 
 // AppendContents ...
@@ -161,6 +165,88 @@ func (d *Data) AppendContents(buf []byte) []byte {
 	var nilSep []byte
 	buf = append(buf, bytes.Join(d.signals, nilSep)...)
 	return buf
+}
+
+// ToInt coverts arrays of 2,3-byte two's complement little-endian integers
+// to arrays of go ints
+func (d *Data) ToInt() (res [][]int, err error) {
+	res = make([][]int, len(d.signals))
+	switch d.numbytes {
+	case 2:
+		tmp, err := toInt16(d.signals)
+		if err != nil {
+			return res, err
+		}
+		for idx, val := range tmp {
+			res[idx] = make([]int, len(val))
+			for idy, numval := range val {
+				res[idx][idy] = int(numval)
+			}
+		}
+	case 3:
+		tmp := toInt32(d.signals)
+		for idx, val := range tmp {
+			res[idx] = make([]int, len(val))
+			for idy, numval := range val {
+				res[idx][idy] = int(numval)
+			}
+		}
+	}
+
+	return res, nil
+}
+
+// toInt16 converts arrays of 2-byte two's complement little-endian integers
+// to arrays of go int16
+func toInt16(signals [][]byte) (res [][]int16, err error) {
+	res = make([][]int16, len(signals))
+	for idx, val := range signals {
+		res[idx] = make([]int16, len(val)/2)
+		buf := bytes.NewReader(val)
+		if err = binary.Read(buf, binary.LittleEndian, res[idx]); err != nil {
+			return res, err
+		}
+	}
+	return res, nil
+}
+
+// toInt32 converts arrays of 3-byte two's complement little-endian integers
+// to arrays of go int32
+func toInt32(signals [][]byte) (res [][]int32) {
+	res = make([][]int32, len(signals))
+	for idx, val := range signals {
+		res[idx] = make([]int32, len(val)/3)
+		for idy, finished := 0, false; !finished; idy++ {
+			if (idy+1)*3 == len(val) {
+				res[idx][idy] = convert24bitTo32bit(val[idy*3:])
+				finished = true
+			} else {
+				res[idx][idy] = convert24bitTo32bit(val[idy*3 : (idy+1)*3])
+			}
+		}
+	}
+	return res
+}
+
+//conver24bitTo32bit takes a byte slice of len 3
+//and converts the 24bit 2's complement integer
+//to the type int32 representation
+func convert24bitTo32bit(c []byte) int32 {
+	x := int((int(c[0]) << 16) | (int(c[1]) << 8) | int(c[2]))
+	if (x & 8388608) > 0 {
+		x |= 4278190080
+	} else {
+		x &= 16777215
+	}
+	return int32(x)
+}
+
+// SetNumBytes for non-standard edf data arrays
+// 2 and 3 byte integers currently supported
+func (d *Data) SetNumBytes(numbytes int) {
+	// To set the number of bytes to a non-default
+	// to be used before calling ToInt
+	d.numbytes = numbytes
 }
 
 // NewHeader instantiates a edf header
