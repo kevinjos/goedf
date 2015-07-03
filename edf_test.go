@@ -35,7 +35,7 @@ func TestMarshal(t *testing.T) {
 		}
 	}
 	edf := NewEDF(h)
-	edf.AppendRecord(NewData(data))
+	edf.dataRecords = append(edf.dataRecords, NewData(data))
 	buf, err := Marshal(edf)
 	if err != nil {
 		t.Error("For TestWrite\n", err)
@@ -84,7 +84,7 @@ func TestUnmarshal(t *testing.T) {
 		}
 	}
 	edf := NewEDF(h)
-	edf.AppendRecord(NewData(data))
+	edf.dataRecords = append(edf.dataRecords, NewData(data))
 	buf, err := Marshal(edf)
 	if err != nil {
 		t.Errorf("marshal in unmarshal: %s", err)

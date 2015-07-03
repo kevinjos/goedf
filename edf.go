@@ -117,10 +117,10 @@ func Unmarshal(data []byte) (edf *EDF, err error) {
 // Marshal edf into byte slice
 func Marshal(edf *EDF) (buf []byte, err error) {
 	buf, err = edf.header.AppendContents(buf)
-	buf = edf.ConcatRecords(buf)
 	if err != nil {
-		return buf, err
+		return nil, err
 	}
+	buf = edf.ConcatRecords(buf)
 	return buf, nil
 }
 
@@ -137,11 +137,7 @@ type EDF struct {
 	dataRecords []*Data
 }
 
-func (e *EDF) AppendRecord(d *Data) {
-	e.dataRecords = append(e.dataRecords, d)
-}
-
-func (e *EDF) ConcatRecords(buf []byte) (d []byte) {
+func (e *EDF) ConcatRecords(buf []byte) []byte {
 	for _, record := range e.dataRecords {
 		buf = record.AppendContents(buf)
 	}
