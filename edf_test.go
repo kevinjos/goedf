@@ -76,7 +76,7 @@ func TestToInt16(t *testing.T) {
 }
 
 func TestToInt(t *testing.T) {
-	res, _ := ToInt(len(tests16[0].result), tests16[0].data)
+	res, _ := toInt(len(tests16[0].result), tests16[0].data)
 	for idx, val := range res {
 		if val != int(tests16[0].result[idx]) {
 			t.Error(
@@ -87,7 +87,7 @@ func TestToInt(t *testing.T) {
 		}
 	}
 
-	res, _ = ToInt(len(tests16[0].result), tests32[0].data)
+	res, _ = toInt(len(tests16[0].result), tests32[0].data)
 	for idx, val := range res {
 		if val != int(tests32[0].result[idx]) {
 			t.Error(
@@ -122,14 +122,14 @@ func TestMarshal(t *testing.T) {
 	for idx := range data {
 		data[idx] = byte(idx % 256)
 	}
-	edf := NewEDF(h, []*Data{NewData(data)})
+	edf := NewEDF(h, []*Data{&Data{rawData: data}})
 
 	buf, err := Marshal(edf)
 	if err != nil {
 		t.Error("For TestWrite\n", err)
 		return
 	}
-	nbHeader, err := asciiToInt(edf.header.numbytes[:])
+	nbHeader, err := asciiToInt(edf.Header.numbytes[:])
 	if err != nil {
 		t.Error("For TestWrite\n", err)
 		return
@@ -138,7 +138,7 @@ func TestMarshal(t *testing.T) {
 	if len(buf) != nb {
 		t.Error("For TestWrite\n",
 			"Expected: ", nb,
-			"From header: ", edf.header.numbytes,
+			"From header: ", edf.Header.numbytes,
 			"From data: ", numsig*numsamp,
 			"Got: ", len(buf))
 	}
@@ -166,7 +166,7 @@ func TestUnmarshal(t *testing.T) {
 	for idx := range data {
 		data[idx] = byte(idx % 256)
 	}
-	edf := NewEDF(h, []*Data{NewData(data)})
+	edf := NewEDF(h, []*Data{&Data{rawData: data}})
 
 	buf, err := Marshal(edf)
 	if err != nil {
@@ -179,21 +179,21 @@ func TestUnmarshal(t *testing.T) {
 		t.Errorf("unmarshal in unmarshal: %s", err)
 		return
 	}
-	if newEDF.header.numbytes != edf.header.numbytes {
+	if newEDF.Header.numbytes != edf.Header.numbytes {
 		t.Error("For TestWrite\n",
-			"Expected: ", edf.header.numbytes,
-			"Got: ", newEDF.header.numbytes)
+			"Expected: ", edf.Header.numbytes,
+			"Got: ", newEDF.Header.numbytes)
 	}
-	if newEDF.header.numsignal != edf.header.numsignal {
+	if newEDF.Header.numsignal != edf.Header.numsignal {
 		t.Error("For TestWrite\n",
-			"Expected: ", edf.header.numsample,
-			"Got: ", newEDF.header.numsample)
+			"Expected: ", edf.Header.numsample,
+			"Got: ", newEDF.Header.numsample)
 	}
-	for idy, data := range newEDF.dataRecords {
+	for idy, data := range newEDF.DataRecords {
 		for idx, val := range data.rawData {
-			if val != edf.dataRecords[idy].rawData[idx] {
+			if val != edf.DataRecords[idy].rawData[idx] {
 				t.Error("For TestUnmarshal\n",
-					"Expected: ", edf.dataRecords[idy].signals[idx],
+					"Expected: ", edf.DataRecords[idy].rawData[idx],
 					"Got: ", val)
 			}
 		}

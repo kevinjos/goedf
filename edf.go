@@ -114,7 +114,7 @@ func Unmarshal(buf []byte) (edf *EDF, err error) {
 	}
 	d := make([]*Data, numrecords)
 	for i := 0; i < numrecords; i++ {
-		d[i] = &Data{signals: make([][]int, ns)}
+		d[i] = &Data{Signals: make([][]int, ns)}
 		for j := 0; j < ns; j++ {
 			sampinsig, err := strToInt(numsample[j])
 			if err != nil {
@@ -125,7 +125,7 @@ func Unmarshal(buf []byte) (edf *EDF, err error) {
 				bytesize = 2
 			}
 			bytesinsig := sampinsig * bytesize
-			d[i].signals[j], err = ToInt(sampinsig, buf[:bytesinsig])
+			d[i].Signals[j], err = toInt(sampinsig, buf[:bytesinsig])
 			if err != nil {
 				fmt.Errorf("serialize bytes to int failure %v\n", err)
 			}
@@ -141,7 +141,7 @@ func Unmarshal(buf []byte) (edf *EDF, err error) {
 
 // Marshal edf into byte slice
 func Marshal(edf *EDF) (buf []byte, err error) {
-	buf, err = edf.header.AppendContents(buf)
+	buf, err = edf.Header.appendContents(buf)
 	if err != nil {
 		return nil, err
 	}
@@ -151,34 +151,27 @@ func Marshal(edf *EDF) (buf []byte, err error) {
 
 func NewEDF(h *Header, d []*Data) *EDF {
 	return &EDF{
-		header:      h,
-		dataRecords: d,
+		Header:      h,
+		DataRecords: d,
 	}
 }
 
 type EDF struct {
-	header      *Header
-	dataRecords []*Data
+	Header      *Header
+	DataRecords []*Data
 }
 
 func (e *EDF) ConcatDataRecords(buf []byte) []byte {
-	for _, record := range e.dataRecords {
+	for _, record := range e.DataRecords {
 		buf = append(buf, record.rawData...)
 	}
 	return buf
 }
 
-// NewData ...
-func NewData(rawData []byte) *Data {
-	return &Data{
-		rawData: rawData,
-	}
-}
-
 // Data holds edf data record
 type Data struct {
 	rawData []byte
-	signals [][]int
+	Signals [][]int
 }
 
 // NewHeader instantiates a edf header
@@ -639,8 +632,8 @@ func (h *Header) allocateVariable(ns int) {
 	}
 }
 
-// AppendContents of header in contiguous byte slice
-func (h *Header) AppendContents(contents []byte) (buf []byte, err error) {
+// appendContents of header in contiguous byte slice
+func (h *Header) appendContents(contents []byte) (buf []byte, err error) {
 	contents = append(contents, h.version[:]...)
 	contents = append(contents, h.LPID[:]...)
 	contents = append(contents, h.LRID[:]...)

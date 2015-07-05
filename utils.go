@@ -121,7 +121,7 @@ func convert24bitTo32bit(c []byte) int32 {
 
 // ToInt coverts arrays of 2,3-byte two's complement little-endian integers
 // to arrays of go ints
-func ToInt(numsample int, sample []byte) (res []int, err error) {
+func toInt(numsample int, sample []byte) (res []int, err error) {
 	bytesize := len(sample) / numsample
 	res = make([]int, numsample)
 	switch bytesize {
