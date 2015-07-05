@@ -30,88 +30,71 @@ func TestConvert24bitTo32bit(t *testing.T) {
 }
 
 type test32pair struct {
-	data   [][]byte
-	result [][]int32
+	data   []byte
+	result []int32
 }
 
 var tests32 = []test32pair{
-	{[][]byte{[]byte{0, 0, 0, 255, 255, 255, 128, 0, 0, 127, 255, 255}},
-		[][]int32{[]int32{0, -1, -8388608, 8388607}},
-	},
+	{[]byte{0, 0, 0, 255, 255, 255, 128, 0, 0, 127, 255, 255}, []int32{0, -1, -8388608, 8388607}},
 }
 
 func TestToInt32(t *testing.T) {
 	pair := tests32[0]
 	res := toInt32(pair.data)
 	for idx, val := range res {
-		for idy, numval := range val {
-			if numval != pair.result[idx][idy] {
-				t.Error(
-					"For", pair.data,
-					"expected", pair.result,
-					"got", res,
-				)
-			}
+		if val != pair.result[idx] {
+			t.Error(
+				"For", pair.data,
+				"expected", pair.result,
+				"got", res,
+			)
 		}
 	}
 }
 
 type test16pair struct {
-	data   [][]byte
-	result [][]int16
+	data   []byte
+	result []int16
 }
 
 var tests16 = []test16pair{
-	{[][]byte{[]byte{0x00, 0x00, 0xFF, 0xFF, 0x00, 0x80, 0xFF, 0x7F}},
-		[][]int16{[]int16{0, -1, -32768, 32767}},
-	},
+	{[]byte{0x00, 0x00, 0xFF, 0xFF, 0x00, 0x80, 0xFF, 0x7F}, []int16{0, -1, -32768, 32767}},
 }
 
 func TestToInt16(t *testing.T) {
 	pair := tests16[0]
 	res, _ := toInt16(pair.data)
 	for idx, val := range res {
-		for idy, numval := range val {
-			if numval != pair.result[idx][idy] {
-				t.Error(
-					"For", pair.data,
-					"expected", pair.result,
-					"got", res,
-				)
-			}
+		if val != pair.result[idx] {
+			t.Error(
+				"For", pair.data,
+				"expected", pair.result,
+				"got", res,
+			)
 		}
 	}
 }
 
 func TestToInt(t *testing.T) {
-	pair16 := tests16[0]
-	d16 := NewData(pair16.data)
-	res, _ := d16.ToInt()
+	res, _ := ToInt(len(tests16[0].result), tests16[0].data)
 	for idx, val := range res {
-		for idy, numval := range val {
-			if numval != int(pair16.result[idx][idy]) {
-				t.Error(
-					"For", pair16.data,
-					"expected", pair16.result,
-					"got", res,
-				)
-			}
+		if val != int(tests16[0].result[idx]) {
+			t.Error(
+				"For", tests16[0].data,
+				"expected", tests16[0].result,
+				"got", res,
+			)
 		}
 	}
 
-	pair32 := tests32[0]
-	d32 := NewData(pair32.data)
-	d32.SetNumBytes(3)
-	res, _ = d32.ToInt()
+	res, _ = ToInt(len(tests16[0].result), tests32[0].data)
 	for idx, val := range res {
-		for idy, numval := range val {
-			if numval != int(pair32.result[idx][idy]) {
-				t.Error(
-					"For", pair32.data,
-					"expected", pair32.result,
-					"got", res,
-				)
-			}
+		if val != int(tests32[0].result[idx]) {
+			t.Error(
+				"For", tests32[0].data,
+				"expected", tests32[0].result,
+				"got", res,
+			)
 		}
 	}
 }
@@ -129,25 +112,18 @@ func (r *reader) Read(buf []byte) (int, error) {
 }
 
 func TestMarshal(t *testing.T) {
-	ns := 8
-	nr := 256
+	numsig, numsamp := 8, 256
 	h, err := NewHeader(NumSignal("8"))
 	if err != nil {
 		t.Error("For TestWrite\n", err)
 		return
 	}
-	data := make([][]byte, ns)
-	channel := make([]byte, ns*nr)
+	data := make([]byte, numsig*numsamp)
 	for idx := range data {
-		data[idx], channel = channel[:nr], channel[nr:]
+		data[idx] = byte(idx % 256)
 	}
-	for _, datum := range data {
-		for idz, _ := range datum {
-			datum[idz] = byte(idz)
-		}
-	}
-	edf := NewEDF(h)
-	edf.dataRecords = append(edf.dataRecords, NewData(data))
+	edf := NewEDF(h, []*Data{NewData(data)})
+
 	buf, err := Marshal(edf)
 	if err != nil {
 		t.Error("For TestWrite\n", err)
@@ -158,45 +134,40 @@ func TestMarshal(t *testing.T) {
 		t.Error("For TestWrite\n", err)
 		return
 	}
-	nb := nbHeader + ns*nr
+	nb := nbHeader + numsig*numsamp
 	if len(buf) != nb {
 		t.Error("For TestWrite\n",
 			"Expected: ", nb,
 			"From header: ", edf.header.numbytes,
-			"From data: ", ns*nr,
+			"From data: ", numsig*numsamp,
 			"Got: ", len(buf))
 	}
 }
 
 func TestUnmarshal(t *testing.T) {
-	ns := 8
-	nr := 256
+	numsig := 8
+	numsamp := 256
 	strArr := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
+	strArrNsamp := []string{"256", "256", "256", "256", "256", "256", "256", "256"}
 	h, err := NewHeader(Version("0"), LocalPatientID("foo"),
 		LocalRecordID("foo"), Startdate("foo"), Starttime("foo"), NumDataRecord("1"),
 		Duration("foo"), NumSignal("8"), Reserved(""), Labels(strArr),
 		TransducerTypes(strArr), PhysicalDimensions(strArr),
 		PhysicalMins(strArr), PhysicalMaxs(strArr),
 		DigitalMins(strArr), DigitalMaxs(strArr),
-		Prefilters(strArr), NumSamples(strArr), NSReserved(strArr))
+		Prefilters(strArr), NumSamples(strArrNsamp), NSReserved(strArr))
 
 	if err != nil {
 		t.Error("For TestUnmarshal %s\n", err)
 		return
 	}
 
-	data := make([][]byte, ns)
-	channel := make([]byte, ns*nr)
+	data := make([]byte, numsig*numsamp)
 	for idx := range data {
-		data[idx], channel = channel[:nr], channel[nr:]
+		data[idx] = byte(idx % 256)
 	}
-	for _, datum := range data {
-		for idz, _ := range datum {
-			datum[idz] = byte(idz)
-		}
-	}
-	edf := NewEDF(h)
-	edf.dataRecords = append(edf.dataRecords, NewData(data))
+	edf := NewEDF(h, []*Data{NewData(data)})
+
 	buf, err := Marshal(edf)
 	if err != nil {
 		t.Errorf("marshal in unmarshal: %s", err)
@@ -219,13 +190,11 @@ func TestUnmarshal(t *testing.T) {
 			"Got: ", newEDF.header.numsample)
 	}
 	for idy, data := range newEDF.dataRecords {
-		for idx, sample := range data.signals {
-			for idz, val := range sample {
-				if val != edf.dataRecords[idy].signals[idx][idz] {
-					t.Error("For TestWrite\n",
-						"Expected: ", edf.dataRecords[idy].signals[idx][idz],
-						"Got: ", val)
-				}
+		for idx, val := range data.rawData {
+			if val != edf.dataRecords[idy].rawData[idx] {
+				t.Error("For TestUnmarshal\n",
+					"Expected: ", edf.dataRecords[idy].signals[idx],
+					"Got: ", val)
 			}
 		}
 	}

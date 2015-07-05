@@ -31,8 +31,6 @@ nr of samples[ns] * integer : last signal
 */
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"strconv"
@@ -41,26 +39,26 @@ import (
 var errNotPrintable = errors.New("outside the printable range")
 
 // Unmarshal byteslice into edf
-func Unmarshal(data []byte) (edf *EDF, err error) {
+func Unmarshal(buf []byte) (edf *EDF, err error) {
 	foffset := fixedHeaderOffsets()
 	fixed := func(os int) (x, res []byte) {
-		return data[:os], data[os:]
+		return buf[:os], buf[os:]
 	}
 
-	version, data := fixed(foffset["version"])
-	lpid, data := fixed(foffset["LPID"])
-	lrid, data := fixed(foffset["LRID"])
-	startdate, data := fixed(foffset["startdate"])
-	starttime, data := fixed(foffset["starttime"])
-	numbytes, data := fixed(foffset["numbytes"])
-	reserved, data := fixed(foffset["reserved"])
-	numdatar, data := fixed(foffset["numdatar"])
-	duration, data := fixed(foffset["duration"])
-	numsignal, data := fixed(foffset["numsignal"])
+	version, buf := fixed(foffset["version"])
+	lpid, buf := fixed(foffset["LPID"])
+	lrid, buf := fixed(foffset["LRID"])
+	startdate, buf := fixed(foffset["startdate"])
+	starttime, buf := fixed(foffset["starttime"])
+	numbytes, buf := fixed(foffset["numbytes"])
+	reserved, buf := fixed(foffset["reserved"])
+	numdatar, buf := fixed(foffset["numdatar"])
+	duration, buf := fixed(foffset["duration"])
+	numsignal, buf := fixed(foffset["numsignal"])
 
 	ns, err := asciiToInt(numsignal)
 	if err != nil {
-		return nil, err
+		fmt.Errorf("serialize ascii to int failure %v, for %v\n", err, numsignal)
 	}
 
 	voffset := variableHeaderOffsets(numsignal)
@@ -68,22 +66,22 @@ func Unmarshal(data []byte) (edf *EDF, err error) {
 		x = make([]string, ns)
 		osps := os / ns
 		for idx, _ := range x {
-			x[idx] = string(data[:osps])
-			data = data[osps:]
+			x[idx] = string(buf[:osps])
+			buf = buf[osps:]
 		}
-		return x, data
+		return x, buf
 	}
 
-	label, data := variable(voffset["label"])
-	transducerType, data := variable(voffset["transducerType"])
-	phydim, data := variable(voffset["phydim"])
-	phymin, data := variable(voffset["phymin"])
-	phymax, data := variable(voffset["phymax"])
-	digmin, data := variable(voffset["digmin"])
-	digmax, data := variable(voffset["digmax"])
-	prefilter, data := variable(voffset["prefilter"])
-	numsample, data := variable(voffset["numsample"])
-	nsreserved, data := variable(voffset["nsreserved"])
+	label, buf := variable(voffset["label"])
+	transducerType, buf := variable(voffset["transducerType"])
+	phydim, buf := variable(voffset["phydim"])
+	phymin, buf := variable(voffset["phymin"])
+	phymax, buf := variable(voffset["phymax"])
+	digmin, buf := variable(voffset["digmin"])
+	digmax, buf := variable(voffset["digmax"])
+	prefilter, buf := variable(voffset["prefilter"])
+	numsample, buf := variable(voffset["numsample"])
+	nsreserved, buf := variable(voffset["nsreserved"])
 
 	h, err := NewHeader(Version(string(version)),
 		LocalPatientID(string(lpid)),
@@ -110,7 +108,33 @@ func Unmarshal(data []byte) (edf *EDF, err error) {
 		return nil, err
 	}
 
-	edf = NewEDF(h)
+	numrecords, err := asciiToInt(numdatar)
+	if err != nil {
+		fmt.Errorf("serialize ascii to int failure %v, for %v\n", err, numdatar)
+	}
+	d := make([]*Data, numrecords)
+	for i := 0; i < numrecords; i++ {
+		d[i] = &Data{signals: make([][]int, ns)}
+		for j := 0; j < ns; j++ {
+			sampinsig, err := strToInt(numsample[j])
+			if err != nil {
+				fmt.Errorf("serialize ascii to int failure %v, for %v\n", err, numdatar)
+			}
+			bytesize, err := strToInt(nsreserved[j])
+			if err != nil {
+				bytesize = 2
+			}
+			bytesinsig := sampinsig * bytesize
+			d[i].signals[j], err = ToInt(sampinsig, buf[:bytesinsig])
+			if err != nil {
+				fmt.Errorf("serialize bytes to int failure %v\n", err)
+			}
+			if len(buf) != 0 {
+				buf = buf[bytesinsig:]
+			}
+		}
+	}
+	edf = NewEDF(h, d)
 
 	return edf, nil
 }
@@ -125,8 +149,7 @@ func Marshal(edf *EDF) (buf []byte, err error) {
 	return buf, nil
 }
 
-func NewEDF(h *Header) *EDF {
-	d := make([]*Data, 0)
+func NewEDF(h *Header, d []*Data) *EDF {
 	return &EDF{
 		header:      h,
 		dataRecords: d,
@@ -140,113 +163,22 @@ type EDF struct {
 
 func (e *EDF) ConcatDataRecords(buf []byte) []byte {
 	for _, record := range e.dataRecords {
-		buf = record.AppendContents(buf)
+		buf = append(buf, record.rawData...)
 	}
 	return buf
 }
 
 // NewData ...
-func NewData(signals [][]byte) *Data {
-	defaultNumBytes := 2
+func NewData(rawData []byte) *Data {
 	return &Data{
-		signals:  signals,
-		numbytes: defaultNumBytes,
+		rawData: rawData,
 	}
 }
 
 // Data holds edf data record
 type Data struct {
-	signals  [][]byte
-	numbytes int
-}
-
-// AppendContents ...
-func (d *Data) AppendContents(buf []byte) []byte {
-	var nilSep []byte
-	buf = append(buf, bytes.Join(d.signals, nilSep)...)
-	return buf
-}
-
-// ToInt coverts arrays of 2,3-byte two's complement little-endian integers
-// to arrays of go ints
-func (d *Data) ToInt() (res [][]int, err error) {
-	res = make([][]int, len(d.signals))
-	switch d.numbytes {
-	case 2:
-		tmp, err := toInt16(d.signals)
-		if err != nil {
-			return res, err
-		}
-		for idx, val := range tmp {
-			res[idx] = make([]int, len(val))
-			for idy, numval := range val {
-				res[idx][idy] = int(numval)
-			}
-		}
-	case 3:
-		tmp := toInt32(d.signals)
-		for idx, val := range tmp {
-			res[idx] = make([]int, len(val))
-			for idy, numval := range val {
-				res[idx][idy] = int(numval)
-			}
-		}
-	}
-
-	return res, nil
-}
-
-// toInt16 converts arrays of 2-byte two's complement little-endian integers
-// to arrays of go int16
-func toInt16(signals [][]byte) (res [][]int16, err error) {
-	res = make([][]int16, len(signals))
-	for idx, val := range signals {
-		res[idx] = make([]int16, len(val)/2)
-		buf := bytes.NewReader(val)
-		if err = binary.Read(buf, binary.LittleEndian, res[idx]); err != nil {
-			return res, err
-		}
-	}
-	return res, nil
-}
-
-// toInt32 converts arrays of 3-byte two's complement little-endian integers
-// to arrays of go int32
-func toInt32(signals [][]byte) (res [][]int32) {
-	res = make([][]int32, len(signals))
-	for idx, val := range signals {
-		res[idx] = make([]int32, len(val)/3)
-		for idy, finished := 0, false; !finished; idy++ {
-			if (idy+1)*3 == len(val) {
-				res[idx][idy] = convert24bitTo32bit(val[idy*3:])
-				finished = true
-			} else {
-				res[idx][idy] = convert24bitTo32bit(val[idy*3 : (idy+1)*3])
-			}
-		}
-	}
-	return res
-}
-
-//conver24bitTo32bit takes a byte slice of len 3
-//and converts the 24bit 2's complement integer
-//to the type int32 representation
-func convert24bitTo32bit(c []byte) int32 {
-	x := int((int(c[0]) << 16) | (int(c[1]) << 8) | int(c[2]))
-	if (x & 8388608) > 0 {
-		x |= 4278190080
-	} else {
-		x &= 16777215
-	}
-	return int32(x)
-}
-
-// SetNumBytes for non-standard edf data arrays
-// 2 and 3 byte integers currently supported
-func (d *Data) SetNumBytes(numbytes int) {
-	// To set the number of bytes to a non-default
-	// to be used before calling ToInt
-	d.numbytes = numbytes
+	rawData []byte
+	signals [][]int
 }
 
 // NewHeader instantiates a edf header
