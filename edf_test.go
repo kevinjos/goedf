@@ -1,6 +1,8 @@
 package edf
 
 import (
+	"io/ioutil"
+	"math/rand"
 	"testing"
 )
 
@@ -111,18 +113,23 @@ func (r *reader) Read(buf []byte) (int, error) {
 	return len(buf), nil
 }
 
-func TestMarshal(t *testing.T) {
+func TestMarshal2ByteData(t *testing.T) {
 	numsig, numsamp := 8, 256
-	h, err := NewHeader(NumSignal("8"))
+	h, err := NewHeader(NumSignal("8"), NumDataRecord("1"))
 	if err != nil {
 		t.Error("For TestWrite\n", err)
 		return
 	}
-	data := make([]byte, numsig*numsamp)
-	for idx := range data {
-		data[idx] = byte(idx % 256)
+
+	signals := make([][]int, numsig)
+	for idx := range signals {
+		signals[idx] = make([]int, numsamp)
+		for idy := range signals[idx] {
+			signals[idx][idy] = rand.Intn(32767)
+		}
 	}
-	edf := NewEDF(h, []*Data{&Data{rawData: data}})
+
+	edf := NewEDF(h, []*Data{&Data{Signals: signals}})
 
 	buf, err := Marshal(edf)
 	if err != nil {
@@ -134,12 +141,59 @@ func TestMarshal(t *testing.T) {
 		t.Error("For TestWrite\n", err)
 		return
 	}
-	nb := nbHeader + numsig*numsamp
+	nb := nbHeader + numsig*numsamp*2
 	if len(buf) != nb {
 		t.Error("For TestWrite\n",
 			"Expected: ", nb,
-			"From header: ", edf.Header.numbytes,
+			"From header: ", string(edf.Header.numbytes[:]),
 			"From data: ", numsig*numsamp,
+			"Got: ", len(buf))
+	}
+}
+
+func TestMarshal3ByteData(t *testing.T) {
+	numsig := 8
+	numsamp := 256
+	strArr := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
+	strArrNsamp := []string{"256", "256", "256", "256", "256", "256", "256", "256"}
+	strArrBSize := []string{"3", "3", "3", "3", "3", "3", "3", "3"}
+	h, err := NewHeader(Version("0"), LocalPatientID("foo"),
+		LocalRecordID("foo"), Startdate("foo"), Starttime("foo"), NumDataRecord("1"),
+		Duration("foo"), NumSignal("8"), Reserved(""), Labels(strArr),
+		TransducerTypes(strArr), PhysicalDimensions(strArr),
+		PhysicalMins(strArr), PhysicalMaxs(strArr),
+		DigitalMins(strArr), DigitalMaxs(strArr),
+		Prefilters(strArr), NumSamples(strArrNsamp), NSReserved(strArrBSize))
+	if err != nil {
+		t.Error("For TestMarshal3ByteData\n", err)
+		return
+	}
+
+	signals := make([][]int, numsig)
+	for idx := range signals {
+		signals[idx] = make([]int, numsamp)
+		for idy := range signals[idx] {
+			signals[idx][idy] = rand.Intn(8388607)
+		}
+	}
+
+	edf := NewEDF(h, []*Data{&Data{Signals: signals}})
+	buf, err := Marshal(edf)
+	if err != nil {
+		t.Error("For TestWrite\n", err)
+		return
+	}
+	nbHeader, err := asciiToInt(edf.Header.numbytes[:])
+	if err != nil {
+		t.Error("For TestWrite\n", err)
+		return
+	}
+	nb := nbHeader + numsig*numsamp*4
+	if len(buf) != nb {
+		t.Error("For TestWrite\n",
+			"Expected: ", nb,
+			"From header: ", string(edf.Header.numbytes[:]),
+			"From data: ", numsig*numsamp*3,
 			"Got: ", len(buf))
 	}
 }
@@ -162,12 +216,15 @@ func TestUnmarshal(t *testing.T) {
 		return
 	}
 
-	data := make([]byte, numsig*numsamp)
-	for idx := range data {
-		data[idx] = byte(idx % 256)
+	signals := make([][]int, numsig)
+	for idx := range signals {
+		signals[idx] = make([]int, numsamp)
+		for idy := range signals[idx] {
+			signals[idx][idy] = rand.Intn(32767)
+		}
 	}
-	edf := NewEDF(h, []*Data{&Data{rawData: data}})
 
+	edf := NewEDF(h, []*Data{&Data{Signals: signals}})
 	buf, err := Marshal(edf)
 	if err != nil {
 		t.Errorf("marshal in unmarshal: %s", err)
@@ -197,5 +254,18 @@ func TestUnmarshal(t *testing.T) {
 					"Got: ", val)
 			}
 		}
+	}
+}
+
+func TestUnmarshalFile(t *testing.T) {
+	buf, err := ioutil.ReadFile("./testdata.edf")
+	if err != nil {
+		t.Errorf("read test data file: %s\n", err)
+	}
+	edf, err := Unmarshal(buf)
+	buf, _ = Marshal(edf)
+	edf, err = Unmarshal(buf)
+	if err != nil {
+		t.Errorf("unmarshal test file: %s\n", err)
 	}
 }

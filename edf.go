@@ -31,6 +31,8 @@ nr of samples[ns] * integer : last signal
 */
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"strconv"
@@ -113,19 +115,19 @@ func Unmarshal(buf []byte) (edf *EDF, err error) {
 		fmt.Errorf("serialize ascii to int failure %v, for %v\n", err, numdatar)
 	}
 	d := make([]*Data, numrecords)
-	for i := 0; i < numrecords; i++ {
-		d[i] = &Data{Signals: make([][]int, ns)}
-		for j := 0; j < ns; j++ {
-			sampinsig, err := strToInt(numsample[j])
+	for idx := range d {
+		d[idx] = &Data{Signals: make([][]int, ns)}
+		for idy := range d[idx].Signals {
+			sampinsig, err := strToInt(numsample[idy])
 			if err != nil {
 				fmt.Errorf("serialize ascii to int failure %v, for %v\n", err, numdatar)
 			}
-			bytesize, err := strToInt(nsreserved[j])
+			bytesize, err := strToInt(nsreserved[idy])
 			if err != nil {
 				bytesize = 2
 			}
 			bytesinsig := sampinsig * bytesize
-			d[i].Signals[j], err = toInt(sampinsig, buf[:bytesinsig])
+			d[idx].Signals[idy], err = toInt(sampinsig, buf[:bytesinsig])
 			if err != nil {
 				fmt.Errorf("serialize bytes to int failure %v\n", err)
 			}
@@ -133,6 +135,9 @@ func Unmarshal(buf []byte) (edf *EDF, err error) {
 				buf = buf[bytesinsig:]
 			}
 		}
+	}
+	if len(buf) != 0 {
+		return nil, fmt.Errorf("buf has %v bytes after unmarshal", len(buf))
 	}
 	edf = NewEDF(h, d)
 
@@ -145,11 +150,44 @@ func Marshal(edf *EDF) (buf []byte, err error) {
 	if err != nil {
 		return nil, err
 	}
-	buf = edf.ConcatDataRecords(buf)
+	numsig, err := asciiToInt(edf.Header.numsignal[:])
+	if err != nil {
+		return buf, fmt.Errorf("intify numdatar: %v\n", edf.Header.numdatar)
+	}
+	byteSizeArr := make([]int, numsig)
+	for idx, val := range edf.Header.nsreserved {
+		bytesize, err := asciiToInt(val[:])
+		if err != nil {
+			bytesize = 2
+		}
+		byteSizeArr[idx] = bytesize
+	}
+	for _, dataRecord := range edf.DataRecords {
+		dataRecord.bytesize = byteSizeArr
+		if dataRecord.rawData == nil {
+			err = dataRecord.marshalSignals()
+			if err != nil {
+				return buf, err
+			}
+		}
+		buf = append(buf, dataRecord.rawData...)
+	}
 	return buf, nil
 }
 
 func NewEDF(h *Header, d []*Data) *EDF {
+	ndr, _ := asciiToInt(h.numdatar[:])
+	if ndr != len(d) {
+		fmt.Errorf("number of data records [%v] must equal length of []*Data [%v]\n",
+			ndr, len(d))
+	}
+	ns, _ := asciiToInt(h.numsignal[:])
+	for _, record := range d {
+		if record.Signals != nil && ns != len(record.Signals) {
+			fmt.Errorf("number of samples [%v] must equal length of Signals array [%v]\n",
+				ns, len(record.Signals))
+		}
+	}
 	return &EDF{
 		Header:      h,
 		DataRecords: d,
@@ -161,17 +199,33 @@ type EDF struct {
 	DataRecords []*Data
 }
 
-func (e *EDF) ConcatDataRecords(buf []byte) []byte {
-	for _, record := range e.DataRecords {
-		buf = append(buf, record.rawData...)
-	}
-	return buf
-}
-
 // Data holds edf data record
 type Data struct {
-	rawData []byte
-	Signals [][]int
+	rawData  []byte
+	Signals  [][]int
+	bytesize []int
+}
+
+func (d *Data) marshalSignals() error {
+	for idx, signal := range d.Signals {
+		for _, numval := range signal {
+			buf := new(bytes.Buffer)
+			switch d.bytesize[idx] {
+			case 2:
+				_ = binary.Write(buf, binary.LittleEndian, int16(numval))
+				d.rawData = append(d.rawData, buf.Bytes()...)
+			case 3:
+				// This could be more optimum... will store 3-byte ints
+				// into 4 byte segments... should write a custom
+				// binary.Write
+				_ = binary.Write(buf, binary.LittleEndian, int32(numval))
+				d.rawData = append(d.rawData, buf.Bytes()...)
+			default:
+				return fmt.Errorf("bytesize %v not supported\n", d.bytesize[idx])
+			}
+		}
+	}
+	return nil
 }
 
 // NewHeader instantiates a edf header
@@ -189,9 +243,9 @@ func NewHeader(options ...func(*Header) error) (*Header, error) {
 	if err != nil {
 		return h, err
 	}
+	h.allocateVariable(ns)
 	nb := h.calcNumBytes(ns)
 	h.setNumBytes(strconv.Itoa(nb))
-	h.allocateVariable(ns)
 	return h, nil
 }
 
@@ -226,9 +280,9 @@ func (h *Header) setVersion(number string) error {
 			return fmt.Errorf("%s for %v in setVersion\n", errNotPrintable, val)
 		}
 		h.version[idx] = number[idx]
-		idl = idx
+		idl = idx + 1
 	}
-	fillWithSpaces(h.version[idl+1:])
+	fillWithSpaces(h.version[idl:])
 	return nil
 }
 
@@ -239,9 +293,9 @@ func (h *Header) setLPID(localPatientID string) error {
 			return fmt.Errorf("%s for %v in setLPID\n", errNotPrintable, val)
 		}
 		h.LPID[idx] = localPatientID[idx]
-		idl = idx
+		idl = idx + 1
 	}
-	fillWithSpaces(h.LPID[idl+1:])
+	fillWithSpaces(h.LPID[idl:])
 	return nil
 }
 
@@ -252,9 +306,9 @@ func (h *Header) setLRID(localRecordID string) error {
 			return fmt.Errorf("%s for %v in setLRID\n", errNotPrintable, val)
 		}
 		h.LRID[idx] = localRecordID[idx]
-		idl = idx
+		idl = idx + 1
 	}
-	fillWithSpaces(h.LRID[idl+1:])
+	fillWithSpaces(h.LRID[idl:])
 	return nil
 }
 
@@ -265,9 +319,9 @@ func (h *Header) setStartdate(startdate string) error {
 			return fmt.Errorf("%s for %v in setStartdate\n", errNotPrintable, val)
 		}
 		h.startdate[idx] = startdate[idx]
-		idl = idx
+		idl = idx + 1
 	}
-	fillWithSpaces(h.startdate[idl+1:])
+	fillWithSpaces(h.startdate[idl:])
 	return nil
 }
 
@@ -278,9 +332,9 @@ func (h *Header) setStarttime(starttime string) error {
 			return fmt.Errorf("%s for %v in setStarttime\n", errNotPrintable, val)
 		}
 		h.starttime[idx] = starttime[idx]
-		idl = idx
+		idl = idx + 1
 	}
-	fillWithSpaces(h.starttime[idl+1:])
+	fillWithSpaces(h.starttime[idl:])
 	return nil
 }
 
@@ -291,9 +345,9 @@ func (h *Header) setNumBytes(numbytes string) error {
 			return fmt.Errorf("%s for %v in setNumBytes\n", errNotPrintable, val)
 		}
 		h.numbytes[idx] = numbytes[idx]
-		idl = idx
+		idl = idx + 1
 	}
-	fillWithSpaces(h.numbytes[idl+1:])
+	fillWithSpaces(h.numbytes[idl:])
 	return nil
 }
 
@@ -304,9 +358,9 @@ func (h *Header) setNumDataRecord(numdatar string) error {
 			return fmt.Errorf("%s for %v in setNumDataRecord\n", errNotPrintable, val)
 		}
 		h.numdatar[idx] = numdatar[idx]
-		idl = idx
+		idl = idx + 1
 	}
-	fillWithSpaces(h.numdatar[idl+1:])
+	fillWithSpaces(h.numdatar[idl:])
 	return nil
 }
 
@@ -318,7 +372,7 @@ func (h *Header) setDuration(dur string) error {
 		}
 		h.duration[idx] = dur[idx]
 	}
-	fillWithSpaces(h.duration[idl+1:])
+	fillWithSpaces(h.duration[idl:])
 	return nil
 }
 
@@ -329,9 +383,9 @@ func (h *Header) setNumSig(ns string) error {
 			return fmt.Errorf("%s for %v in setNumSig\n", errNotPrintable, val)
 		}
 		h.numsignal[idx] = ns[idx]
-		idl = idx
+		idl = idx + 1
 	}
-	fillWithSpaces(h.numsignal[idl+1:])
+	fillWithSpaces(h.numsignal[idl:])
 	return nil
 }
 
@@ -342,12 +396,12 @@ func (h *Header) setReserved(res string) error {
 			return fmt.Errorf("%s for %v in setReserved\n", errNotPrintable, val)
 		}
 		h.reserved[idx] = res[idx]
-		idl = idx
+		idl = idx + 1
 	}
 	if idl == 0 {
 		fillWithSpaces(h.reserved[:])
 	} else {
-		fillWithSpaces(h.reserved[idl+1:])
+		fillWithSpaces(h.reserved[idl:])
 	}
 
 	return nil
@@ -366,9 +420,9 @@ func (h *Header) setLabels(labels []string) error {
 				return fmt.Errorf("%s for %v in setLabels\n", errNotPrintable, val)
 			}
 			h.label[idz][idx] = label[idx]
-			idl = idx
+			idl = idx + 1
 		}
-		fillWithSpaces(h.label[idz][idl+1:])
+		fillWithSpaces(h.label[idz][idl:])
 	}
 	return nil
 }
@@ -386,9 +440,9 @@ func (h *Header) setTransducerTypes(tts []string) error {
 				return fmt.Errorf("%s for %v in setTransTypes\n", errNotPrintable, val)
 			}
 			h.transducerType[idz][idx] = tt[idx]
-			idl = idx
+			idl = idx + 1
 		}
-		fillWithSpaces(h.transducerType[idz][idl+1:])
+		fillWithSpaces(h.transducerType[idz][idl:])
 	}
 	return nil
 }
@@ -406,9 +460,9 @@ func (h *Header) setPhysicalDimensions(phydims []string) error {
 				return fmt.Errorf("%s for %v in setPhyDim\n", errNotPrintable, val)
 			}
 			h.phydim[idz][idx] = phydim[idx]
-			idl = idx
+			idl = idx + 1
 		}
-		fillWithSpaces(h.phydim[idz][idl+1:])
+		fillWithSpaces(h.phydim[idz][idl:])
 	}
 	return nil
 }
@@ -426,9 +480,9 @@ func (h *Header) setPhysicalMins(phymins []string) error {
 				return fmt.Errorf("%s for %v in setPhyMin\n", errNotPrintable, val)
 			}
 			h.phymin[idz][idx] = phymin[idx]
-			idl = idx
+			idl = idx + 1
 		}
-		fillWithSpaces(h.phymin[idz][idl+1:])
+		fillWithSpaces(h.phymin[idz][idl:])
 	}
 	return nil
 }
@@ -446,9 +500,9 @@ func (h *Header) setPhysicalMaxs(phymaxs []string) error {
 				return fmt.Errorf("%s for %v in setPhyMax\n", errNotPrintable, val)
 			}
 			h.phymax[idz][idx] = phymax[idx]
-			idl = idx
+			idl = idx + 1
 		}
-		fillWithSpaces(h.phymax[idz][idl+1:])
+		fillWithSpaces(h.phymax[idz][idl:])
 	}
 	return nil
 }
@@ -466,9 +520,9 @@ func (h *Header) setDigitalMins(digmins []string) error {
 				return fmt.Errorf("%s for %v in setDigMin\n", errNotPrintable, val)
 			}
 			h.digmin[idz][idx] = digmin[idx]
-			idl = idx
+			idl = idx + 1
 		}
-		fillWithSpaces(h.digmin[idz][idl+1:])
+		fillWithSpaces(h.digmin[idz][idl:])
 	}
 	return nil
 }
@@ -486,9 +540,9 @@ func (h *Header) setDigitalMaxs(digmaxs []string) error {
 				return fmt.Errorf("%s for %v in setDigMax\n", errNotPrintable, val)
 			}
 			h.digmax[idz][idx] = digmax[idx]
-			idl = idx
+			idl = idx + 1
 		}
-		fillWithSpaces(h.digmax[idz][idl+1:])
+		fillWithSpaces(h.digmax[idz][idl:])
 	}
 	return nil
 }
@@ -506,9 +560,9 @@ func (h *Header) setPrefilters(prefilters []string) error {
 				return fmt.Errorf("%s for %v in setPrefilters\n", errNotPrintable, val)
 			}
 			h.prefilter[idz][idx] = prefilter[idx]
-			idl = idx
+			idl = idx + 1
 		}
-		fillWithSpaces(h.prefilter[idz][idl+1:])
+		fillWithSpaces(h.prefilter[idz][idl:])
 	}
 	return nil
 }
@@ -526,9 +580,9 @@ func (h *Header) setNumSamples(numsamples []string) error {
 				return fmt.Errorf("%s for %v in setNumSamples\n", errNotPrintable, val)
 			}
 			h.numsample[idz][idx] = numsample[idx]
-			idl = idx
+			idl = idx + 1
 		}
-		fillWithSpaces(h.numsample[idz][idl+1:])
+		fillWithSpaces(h.numsample[idz][idl:])
 	}
 	return nil
 }
@@ -546,12 +600,12 @@ func (h *Header) setNSReserved(nsreserved []string) error {
 				return fmt.Errorf("%s for %v in setNSReserved\n", errNotPrintable, val)
 			}
 			h.nsreserved[idz][idx] = nsres[idx]
-			idl = idx
+			idl = idx + 1
 		}
 		if idl == 0 {
 			fillWithSpaces(h.nsreserved[idz][:])
 		} else {
-			fillWithSpaces(h.nsreserved[idz][idl+1:])
+			fillWithSpaces(h.nsreserved[idz][idl:])
 		}
 	}
 	return nil
@@ -572,62 +626,72 @@ func (h *Header) allocateFixed() {
 func (h *Header) allocateVariable(ns int) {
 	if len(h.label) == 0 {
 		h.label = make([][len(h.label[0])]byte, ns)
-		for _, label := range h.label {
+		for idx, label := range h.label {
 			fillWithSpaces(label[:])
+			h.label[idx] = label
 		}
 	}
 	if len(h.transducerType) == 0 {
 		h.transducerType = make([][len(h.transducerType[0])]byte, ns)
-		for _, transducerType := range h.transducerType {
+		for idx, transducerType := range h.transducerType {
 			fillWithSpaces(transducerType[:])
+			h.transducerType[idx] = transducerType
 		}
 	}
 	if len(h.phydim) == 0 {
 		h.phydim = make([][len(h.phydim[0])]byte, ns)
-		for _, phydim := range h.phydim {
+		for idx, phydim := range h.phydim {
 			fillWithSpaces(phydim[:])
+			h.phydim[idx] = phydim
 		}
 	}
 	if len(h.phymin) == 0 {
 		h.phymin = make([][len(h.phymin[0])]byte, ns)
-		for _, phymin := range h.phymin {
+		for idx, phymin := range h.phymin {
 			fillWithSpaces(phymin[:])
+			h.phymin[idx] = phymin
 		}
 	}
 	if len(h.phymax) == 0 {
 		h.phymax = make([][len(h.phymax[0])]byte, ns)
-		for _, phymax := range h.phymax {
+		for idx, phymax := range h.phymax {
 			fillWithSpaces(phymax[:])
+			h.phymax[idx] = phymax
 		}
 	}
 	if len(h.digmin) == 0 {
 		h.digmin = make([][len(h.digmin[0])]byte, ns)
-		for _, digmin := range h.digmin {
+		for idx, digmin := range h.digmin {
 			fillWithSpaces(digmin[:])
+			h.digmin[idx] = digmin
 		}
 	}
 	if len(h.digmax) == 0 {
 		h.digmax = make([][len(h.digmax[0])]byte, ns)
-		for _, digmax := range h.digmax {
+		for idx, digmax := range h.digmax {
 			fillWithSpaces(digmax[:])
+			h.digmax[idx] = digmax
 		}
 	}
 	if len(h.prefilter) == 0 {
 		h.prefilter = make([][len(h.prefilter[0])]byte, ns)
-		for _, prefilter := range h.prefilter {
+		for idx, prefilter := range h.prefilter {
 			fillWithSpaces(prefilter[:])
+			h.prefilter[idx] = prefilter
 		}
 	}
 	if len(h.numsample) == 0 {
 		h.numsample = make([][len(h.numsample[0])]byte, ns)
-		for _, numsample := range h.numsample {
+		for idx, numsample := range h.numsample {
 			fillWithSpaces(numsample[:])
+			h.numsample[idx] = numsample
 		}
 	}
 	if len(h.nsreserved) == 0 {
 		h.nsreserved = make([][len(h.nsreserved[0])]byte, ns)
-		for _, nsreserved := range h.nsreserved {
+		for idx, nsreserved := range h.nsreserved {
 			fillWithSpaces(nsreserved[:])
+			h.nsreserved[idx] = nsreserved
 		}
 	}
 }
