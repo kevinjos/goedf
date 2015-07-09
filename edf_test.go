@@ -3,6 +3,7 @@ package edf
 import (
 	"io/ioutil"
 	"math/rand"
+	"os"
 	"testing"
 )
 
@@ -259,7 +260,10 @@ func TestUnmarshal(t *testing.T) {
 
 func TestUnmarshalFile(t *testing.T) {
 	buf, err := ioutil.ReadFile("./testdata.edf")
-	if err != nil {
+	if os.IsNotExist(err) {
+		t.Errorf("%s\nwget test data file from http://www.physionet.org/physiobank/database/sleep-edf/ perhaps\n", err)
+		return
+	} else if err != nil {
 		t.Errorf("read test data file: %s\n", err)
 	}
 	edf, err := Unmarshal(buf)
