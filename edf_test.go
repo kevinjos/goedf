@@ -32,6 +32,47 @@ func TestConvert24bitTo32bit(t *testing.T) {
 	}
 }
 
+type test24revpair struct {
+	data   int
+	result []byte
+}
+
+var tests24rev = []test24revpair{
+	{0, []byte{0, 0, 0}},
+	{-1, []byte{255, 255, 255}},
+	{-8388608, []byte{128, 0, 0}},
+	{8388607, []byte{127, 255, 255}},
+}
+
+func TestConvertIntTo3ByteArray(t *testing.T) {
+	for _, pair := range tests24rev {
+		res := convertIntTo3ByteArray(pair.data)
+		for idx, b := range res {
+			if b != pair.result[idx] {
+				t.Error(
+					"For", pair.data,
+					"expected", pair.result,
+					"got", res,
+				)
+			}
+		}
+	}
+}
+
+func Test24bitToIntAndBack(t *testing.T) {
+	for i := -8388608; i < 8388608; i++ {
+		a := convertIntTo3ByteArray(i)
+		b := convert24bitTo32bit(a)
+		if i != int(b) {
+			t.Error(
+				"For", i,
+				"Expected", i,
+				"Got", b,
+			)
+		}
+	}
+}
+
 type test32pair struct {
 	data   []byte
 	result []int32
@@ -155,6 +196,7 @@ func TestMarshal2ByteData(t *testing.T) {
 func TestMarshal3ByteData(t *testing.T) {
 	numsig := 8
 	numsamp := 256
+	byteSize := 3
 	strArr := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
 	strArrNsamp := []string{"256", "256", "256", "256", "256", "256", "256", "256"}
 	strArrBSize := []string{"3", "3", "3", "3", "3", "3", "3", "3"}
@@ -189,7 +231,7 @@ func TestMarshal3ByteData(t *testing.T) {
 		t.Error("For TestWrite\n", err)
 		return
 	}
-	nb := nbHeader + numsig*numsamp*4
+	nb := nbHeader + numsig*numsamp*byteSize
 	if len(buf) != nb {
 		t.Error("For TestWrite\n",
 			"Expected: ", nb,
@@ -267,9 +309,39 @@ func TestUnmarshalFile(t *testing.T) {
 		t.Errorf("read test data file: %s\n", err)
 	}
 	edf, err := Unmarshal(buf)
-	buf, _ = Marshal(edf)
-	edf, err = Unmarshal(buf)
+	bufM, _ := Marshal(edf)
+	edf, err = Unmarshal(bufM)
 	if err != nil {
 		t.Errorf("unmarshal test file: %s\n", err)
+	}
+	// Byte for byte comparison of file in to unmarshaled/marshaled buffer
+	for idx, val := range buf {
+		if val != bufM[idx] {
+			t.Error("For TestUnmarshalFile\n",
+				"Expected: ", val,
+				"Got: ", bufM[idx],
+				"At index: ", idx)
+		}
+	}
+	// Check size of buffer against header vals
+	bufMSize := len(bufM)
+	bufSize := len(buf)
+	headerByteCount, _ := asciiToInt(edf.Header.numbytes[:])
+	numDRs, _ := asciiToInt(edf.Header.numdatar[:])
+	var drByteCount int
+	for _, val := range edf.Header.numsample {
+		numval, _ := asciiToInt(val[:])
+		drByteCount += numval * 2
+	}
+	if bufMSize != bufSize {
+		t.Error("For TestUnmarshalFile\n",
+			"Expected: ", bufSize,
+			"Got: ", bufMSize)
+	}
+	byteCount := headerByteCount + drByteCount*numDRs
+	if byteCount != bufSize {
+		t.Error("For TestUnmarshalFile\n",
+			"Expected: ", bufSize,
+			"Got: ", drByteCount)
 	}
 }

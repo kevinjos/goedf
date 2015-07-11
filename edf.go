@@ -209,17 +209,13 @@ type Data struct {
 func (d *Data) marshalSignals() error {
 	for idx, signal := range d.Signals {
 		for _, numval := range signal {
-			buf := new(bytes.Buffer)
 			switch d.bytesize[idx] {
 			case 2:
+				buf := new(bytes.Buffer)
 				_ = binary.Write(buf, binary.LittleEndian, int16(numval))
 				d.rawData = append(d.rawData, buf.Bytes()...)
 			case 3:
-				// This could be more optimum... will store 3-byte ints
-				// into 4 byte segments... should write a custom
-				// binary.Write
-				_ = binary.Write(buf, binary.LittleEndian, int32(numval))
-				d.rawData = append(d.rawData, buf.Bytes()...)
+				d.rawData = append(d.rawData, convertIntTo3ByteArray(numval)...)
 			default:
 				return fmt.Errorf("bytesize %v not supported\n", d.bytesize[idx])
 			}
@@ -371,6 +367,7 @@ func (h *Header) setDuration(dur string) error {
 			return fmt.Errorf("%s for %v in setDuration\n", errNotPrintable, val)
 		}
 		h.duration[idx] = dur[idx]
+		idl = idx + 1
 	}
 	fillWithSpaces(h.duration[idl:])
 	return nil

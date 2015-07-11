@@ -119,6 +119,16 @@ func convert24bitTo32bit(c []byte) int32 {
 	return int32(x)
 }
 
+func convertIntTo3ByteArray(i int) []byte {
+	out := make([]byte, 3)
+	out[2] = byte(i)
+	i = i >> 8
+	out[1] = byte(i)
+	i = i >> 8
+	out[0] = byte(i)
+	return out
+}
+
 // ToInt coverts arrays of 2,3-byte two's complement little-endian integers
 // to arrays of go ints
 func toInt(numsample int, sample []byte) (res []int, err error) {
