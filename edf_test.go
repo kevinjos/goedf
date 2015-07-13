@@ -301,47 +301,54 @@ func TestUnmarshal(t *testing.T) {
 }
 
 func TestUnmarshalFile(t *testing.T) {
-	buf, err := ioutil.ReadFile("./testdata.edf")
-	if os.IsNotExist(err) {
-		t.Errorf("%s\nwget test data file from http://www.physionet.org/physiobank/database/sleep-edf/ perhaps\n", err)
-		return
-	} else if err != nil {
-		t.Errorf("read test data file: %s\n", err)
-	}
-	edf, err := Unmarshal(buf)
-	bufM, _ := Marshal(edf)
-	edf, err = Unmarshal(bufM)
-	if err != nil {
-		t.Errorf("unmarshal test file: %s\n", err)
-	}
-	// Byte for byte comparison of file in to unmarshaled/marshaled buffer
-	for idx, val := range buf {
-		if val != bufM[idx] {
-			t.Error("For TestUnmarshalFile\n",
-				"Expected: ", val,
-				"Got: ", bufM[idx],
-				"At index: ", idx)
+	filenames := []string{"./tstdata/testdata.edf", "./tstdata/testdata3byte.edf"}
+	for _, fn := range filenames {
+		buf, err := ioutil.ReadFile(fn)
+		if os.IsNotExist(err) {
+			t.Logf("%s\nmissing 2-byte standard test data\n", err)
+			continue
+		} else if err != nil {
+			t.Errorf("read test data file: %s\n", err)
 		}
-	}
-	// Check size of buffer against header vals
-	bufMSize := len(bufM)
-	bufSize := len(buf)
-	headerByteCount, _ := asciiToInt(edf.Header.numbytes[:])
-	numDRs, _ := asciiToInt(edf.Header.numdatar[:])
-	var drByteCount int
-	for _, val := range edf.Header.numsample {
-		numval, _ := asciiToInt(val[:])
-		drByteCount += numval * 2
-	}
-	if bufMSize != bufSize {
-		t.Error("For TestUnmarshalFile\n",
-			"Expected: ", bufSize,
-			"Got: ", bufMSize)
-	}
-	byteCount := headerByteCount + drByteCount*numDRs
-	if byteCount != bufSize {
-		t.Error("For TestUnmarshalFile\n",
-			"Expected: ", bufSize,
-			"Got: ", drByteCount)
+		edf, err := Unmarshal(buf)
+		bytesize, err := asciiToInt(edf.Header.nsreserved[0][:])
+		if err != nil {
+			bytesize = 2
+		}
+		bufM, _ := Marshal(edf)
+		edf, err = Unmarshal(bufM)
+		if err != nil {
+			t.Errorf("unmarshal test file: %s\n", err)
+		}
+		// Byte for byte comparison of file in to unmarshaled/marshaled buffer
+		for idx, val := range buf {
+			if val != bufM[idx] {
+				t.Error("For TestUnmarshalFile\n",
+					"Expected: ", val,
+					"Got: ", bufM[idx],
+					"At index: ", idx)
+			}
+		}
+		// Check size of buffer against header vals
+		bufMSize := len(bufM)
+		bufSize := len(buf)
+		headerByteCount, _ := asciiToInt(edf.Header.numbytes[:])
+		numDRs, _ := asciiToInt(edf.Header.numdatar[:])
+		var drByteCount int
+		for _, val := range edf.Header.numsample {
+			numval, _ := asciiToInt(val[:])
+			drByteCount += numval * bytesize
+		}
+		if bufMSize != bufSize {
+			t.Error("For TestUnmarshalFile\n",
+				"Expected: ", bufSize,
+				"Got: ", bufMSize)
+		}
+		byteCount := headerByteCount + drByteCount*numDRs
+		if byteCount != bufSize {
+			t.Error("For TestUnmarshalFile\n",
+				"Expected: ", bufSize,
+				"Got: ", drByteCount)
+		}
 	}
 }
