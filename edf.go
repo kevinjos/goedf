@@ -40,6 +40,11 @@ import (
 
 var errNotPrintable = errors.New("outside the printable range")
 
+const (
+	FixedHeaderBytes    = 256
+	VariableHeaderBytes = 256
+)
+
 // Unmarshal byteslice into edf
 func Unmarshal(buf []byte) (edf *EDF, err error) {
 	foffset := fixedHeaderOffsets()
