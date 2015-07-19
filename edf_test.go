@@ -1,4 +1,4 @@
-package edf
+package biosigio
 
 import (
 	"io/ioutil"
@@ -33,7 +33,7 @@ func TestConvert24bitTo32bit(t *testing.T) {
 }
 
 type test24revpair struct {
-	data   int
+	data   int32
 	result []byte
 }
 
@@ -44,9 +44,9 @@ var tests24rev = []test24revpair{
 	{8388607, []byte{127, 255, 255}},
 }
 
-func TestConvertIntTo3ByteArray(t *testing.T) {
+func TestConvert32IntTo3ByteArray(t *testing.T) {
 	for _, pair := range tests24rev {
-		res := convertIntTo3ByteArray(pair.data)
+		res := convertInt32To3ByteArray(pair.data)
 		for idx, b := range res {
 			if b != pair.result[idx] {
 				t.Error(
@@ -61,7 +61,7 @@ func TestConvertIntTo3ByteArray(t *testing.T) {
 
 func Test24bitToIntAndBack(t *testing.T) {
 	for i := -8388608; i < 8388608; i++ {
-		a := convertIntTo3ByteArray(i)
+		a := convertInt32To3ByteArray(int32(i))
 		b := convert24bitTo32bit(a)
 		if i != int(b) {
 			t.Error(
@@ -119,30 +119,6 @@ func TestToInt16(t *testing.T) {
 	}
 }
 
-func TestToInt(t *testing.T) {
-	res, _ := toInt(len(tests16[0].result), tests16[0].data)
-	for idx, val := range res {
-		if val != int(tests16[0].result[idx]) {
-			t.Error(
-				"For", tests16[0].data,
-				"expected", tests16[0].result,
-				"got", res,
-			)
-		}
-	}
-
-	res, _ = toInt(len(tests16[0].result), tests32[0].data)
-	for idx, val := range res {
-		if val != int(tests32[0].result[idx]) {
-			t.Error(
-				"For", tests32[0].data,
-				"expected", tests32[0].result,
-				"got", res,
-			)
-		}
-	}
-}
-
 type writer struct{}
 
 func (w *writer) Write(buf []byte) (int, error) {
@@ -155,7 +131,7 @@ func (r *reader) Read(buf []byte) (int, error) {
 	return len(buf), nil
 }
 
-func TestMarshal2ByteData(t *testing.T) {
+func TestMarshalEDF(t *testing.T) {
 	numsig, numsamp := 8, 256
 	h, err := NewHeader(NumSignal("8"), NumDataRecord("1"))
 	if err != nil {
@@ -163,17 +139,17 @@ func TestMarshal2ByteData(t *testing.T) {
 		return
 	}
 
-	signals := make([][]int, numsig)
+	signals := make([][]int16, numsig)
 	for idx := range signals {
-		signals[idx] = make([]int, numsamp)
+		signals[idx] = make([]int16, numsamp)
 		for idy := range signals[idx] {
-			signals[idx][idy] = rand.Intn(32767)
+			signals[idx][idy] = int16(rand.Intn(32767))
 		}
 	}
 
-	edf := NewEDF(h, []*Data{&Data{Signals: signals}})
+	edf := NewEDF(h, []*EDFData{&EDFData{Signals: signals}})
 
-	buf, err := Marshal(edf)
+	buf, err := MarshalEDF(edf)
 	if err != nil {
 		t.Error("For TestWrite\n", err)
 		return
@@ -193,7 +169,7 @@ func TestMarshal2ByteData(t *testing.T) {
 	}
 }
 
-func TestMarshal3ByteData(t *testing.T) {
+func TestMarshalBDF(t *testing.T) {
 	numsig := 8
 	numsamp := 256
 	byteSize := 3
@@ -212,21 +188,21 @@ func TestMarshal3ByteData(t *testing.T) {
 		return
 	}
 
-	signals := make([][]int, numsig)
+	signals := make([][]int32, numsig)
 	for idx := range signals {
-		signals[idx] = make([]int, numsamp)
+		signals[idx] = make([]int32, numsamp)
 		for idy := range signals[idx] {
-			signals[idx][idy] = rand.Intn(8388607)
+			signals[idx][idy] = int32(rand.Intn(8388607))
 		}
 	}
 
-	edf := NewEDF(h, []*Data{&Data{Signals: signals}})
-	buf, err := Marshal(edf)
+	bdf := NewBDF(h, []*BDFData{&BDFData{Signals: signals}})
+	buf, err := MarshalBDF(bdf)
 	if err != nil {
 		t.Error("For TestWrite\n", err)
 		return
 	}
-	nbHeader, err := asciiToInt(edf.Header.numbytes[:])
+	nbHeader, err := asciiToInt(bdf.Header.numbytes[:])
 	if err != nil {
 		t.Error("For TestWrite\n", err)
 		return
@@ -235,13 +211,13 @@ func TestMarshal3ByteData(t *testing.T) {
 	if len(buf) != nb {
 		t.Error("For TestWrite\n",
 			"Expected: ", nb,
-			"From header: ", string(edf.Header.numbytes[:]),
+			"From header: ", string(bdf.Header.numbytes[:]),
 			"From data: ", numsig*numsamp*3,
 			"Got: ", len(buf))
 	}
 }
 
-func TestUnmarshal(t *testing.T) {
+func TestUnmarshalEDF(t *testing.T) {
 	numsig := 8
 	numsamp := 256
 	strArr := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
@@ -259,22 +235,22 @@ func TestUnmarshal(t *testing.T) {
 		return
 	}
 
-	signals := make([][]int, numsig)
+	signals := make([][]int16, numsig)
 	for idx := range signals {
-		signals[idx] = make([]int, numsamp)
+		signals[idx] = make([]int16, numsamp)
 		for idy := range signals[idx] {
-			signals[idx][idy] = rand.Intn(32767)
+			signals[idx][idy] = int16(rand.Intn(32767))
 		}
 	}
 
-	edf := NewEDF(h, []*Data{&Data{Signals: signals}})
-	buf, err := Marshal(edf)
+	edf := NewEDF(h, []*EDFData{&EDFData{Signals: signals}})
+	buf, err := MarshalEDF(edf)
 	if err != nil {
 		t.Errorf("marshal in unmarshal: %s", err)
 		return
 	}
 
-	newEDF, err := Unmarshal(buf)
+	newEDF, err := UnmarshalEDF(buf)
 	if err != nil {
 		t.Errorf("unmarshal in unmarshal: %s", err)
 		return
@@ -300,55 +276,96 @@ func TestUnmarshal(t *testing.T) {
 	}
 }
 
-func TestUnmarshalFile(t *testing.T) {
-	filenames := []string{"./tstdata/testdata.edf", "./tstdata/testdata3byte.edf"}
-	for _, fn := range filenames {
-		buf, err := ioutil.ReadFile(fn)
-		if os.IsNotExist(err) {
-			t.Logf("%s\nmissing 2-byte standard test data\n", err)
-			continue
-		} else if err != nil {
-			t.Errorf("read test data file: %s\n", err)
-		}
-		edf, err := Unmarshal(buf)
-		bytesize, err := asciiToInt(edf.Header.nsreserved[0][:])
-		if err != nil {
-			bytesize = 2
-		}
-		bufM, _ := Marshal(edf)
-		edf, err = Unmarshal(bufM)
-		if err != nil {
-			t.Errorf("unmarshal test file: %s\n", err)
-		}
-		// Byte for byte comparison of file in to unmarshaled/marshaled buffer
-		for idx, val := range buf {
-			if val != bufM[idx] {
-				t.Error("For TestUnmarshalFile\n",
-					"Expected: ", val,
-					"Got: ", bufM[idx],
-					"At index: ", idx)
-			}
-		}
-		// Check size of buffer against header vals
-		bufMSize := len(bufM)
-		bufSize := len(buf)
-		headerByteCount, _ := asciiToInt(edf.Header.numbytes[:])
-		numDRs, _ := asciiToInt(edf.Header.numdatar[:])
-		var drByteCount int
-		for _, val := range edf.Header.numsample {
-			numval, _ := asciiToInt(val[:])
-			drByteCount += numval * bytesize
-		}
-		if bufMSize != bufSize {
+func TestUnmarshalEDFFile(t *testing.T) {
+	fn := "./tstdata/testdata.edf"
+	buf, err := ioutil.ReadFile(fn)
+	if os.IsNotExist(err) {
+		t.Logf("%s\nmissing EDF test data\n", err)
+		return
+	} else if err != nil {
+		t.Errorf("read test data file: %s\n", err)
+	}
+	edf, err := UnmarshalEDF(buf)
+	bufM, _ := MarshalEDF(edf)
+	edf, err = UnmarshalEDF(bufM)
+	if err != nil {
+		t.Errorf("unmarshal test file: %s\n", err)
+	}
+	// Byte for byte comparison of file in to unmarshaled/marshaled buffer
+	for idx, val := range buf {
+		if val != bufM[idx] {
 			t.Error("For TestUnmarshalFile\n",
-				"Expected: ", bufSize,
-				"Got: ", bufMSize)
+				"Expected: ", val,
+				"Got: ", bufM[idx],
+				"At index: ", idx)
 		}
-		byteCount := headerByteCount + drByteCount*numDRs
-		if byteCount != bufSize {
+	}
+	// Check size of buffer against header vals
+	bufMSize := len(bufM)
+	bufSize := len(buf)
+	headerByteCount, _ := asciiToInt(edf.Header.numbytes[:])
+	numDRs, _ := asciiToInt(edf.Header.numdatar[:])
+	var drByteCount int
+	for _, val := range edf.Header.numsample {
+		numval, _ := asciiToInt(val[:])
+		drByteCount += numval * EDFDataByteSize
+	}
+	if bufMSize != bufSize {
+		t.Error("For TestUnmarshalFile\n",
+			"Expected: ", bufSize,
+			"Got: ", bufMSize)
+	}
+	byteCount := headerByteCount + drByteCount*numDRs
+	if byteCount != bufSize {
+		t.Error("For TestUnmarshalFile\n",
+			"Expected: ", bufSize,
+			"Got: ", drByteCount)
+	}
+}
+
+func TestUnmarshalBDFFile(t *testing.T) {
+	fn := "./tstdata/testdata.bdf"
+	buf, err := ioutil.ReadFile(fn)
+	if os.IsNotExist(err) {
+		t.Logf("%s\nmissing BDF test data\n", err)
+		return
+	} else if err != nil {
+		t.Errorf("read test data file: %s\n", err)
+	}
+	bdf, err := UnmarshalBDF(buf)
+	bufM, _ := MarshalBDF(bdf)
+	bdf, err = UnmarshalBDF(bufM)
+	if err != nil {
+		t.Errorf("unmarshal test file: %s\n", err)
+	}
+	// Byte for byte comparison of file in to unmarshaled/marshaled buffer
+	for idx, val := range buf {
+		if val != bufM[idx] {
 			t.Error("For TestUnmarshalFile\n",
-				"Expected: ", bufSize,
-				"Got: ", drByteCount)
+				"Expected: ", val,
+				"Got: ", bufM[idx],
+				"At index: ", idx)
 		}
+	}
+	// Check size of buffer against header vals
+	bufMSize := len(bufM)
+	bufSize := len(buf)
+	headerByteCount, _ := asciiToInt(bdf.Header.numbytes[:])
+	numDRs, _ := asciiToInt(bdf.Header.numdatar[:])
+	var drByteCount int
+	for _, val := range bdf.Header.numsample {
+		numval, _ := asciiToInt(val[:])
+		drByteCount += numval * BDFDataByteSize
+	}
+	if bufMSize != bufSize {
+		t.Error("For TestUnmarshalFile\n",
+			"Expected: ", bufSize,
+			"Got: ", bufMSize)
+	}
+	byteCount := headerByteCount + drByteCount*numDRs
+	if byteCount != bufSize {
+		t.Error("For TestUnmarshalFile\n",
+			"Expected: ", bufSize,
+			"Got: ", drByteCount)
 	}
 }

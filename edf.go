@@ -1,4 +1,4 @@
-package edf
+package biosigio
 
 /*
 HEADER RECORD (we suggest to also adopt the 12 simple additional EDF+ specs)
@@ -43,10 +43,86 @@ var errNotPrintable = errors.New("outside the printable range")
 const (
 	FixedHeaderBytes    = 256
 	VariableHeaderBytes = 256
+	EDFDataByteSize     = 2
+	BDFDataByteSize     = 3
 )
 
+func UnmarshalEDF(buf []byte) (edf *EDF, err error) {
+	h, buf, err := unmarshalHeader(buf)
+	if err != nil {
+		return nil, err
+	}
+	numdatar, err := asciiToInt(h.numdatar[:])
+	if err != nil {
+		fmt.Errorf("serialize ascii to int: %v, for %v\n", err, h.numdatar)
+	}
+	numsignal, err := asciiToInt(h.numsignal[:])
+	if err != nil {
+		fmt.Errorf("serialize ascii to int: %v, for %v\n", err, h.numsignal)
+	}
+	d := make([]*EDFData, numdatar)
+	for idx := range d {
+		d[idx] = &EDFData{Signals: make([][]int16, numsignal)}
+		for idy := range d[idx].Signals {
+			numsample, err := asciiToInt(h.numsample[idy][:])
+			if err != nil {
+				fmt.Errorf("serialize ascii to int: %v, for %v\n", err, h.numsample)
+			}
+			d[idx].Signals[idy], err = toInt16(buf[:numsample*EDFDataByteSize])
+			if err != nil {
+				fmt.Errorf("serialize bytes to int failure %v\n", err)
+			}
+			if len(buf) != 0 {
+				buf = buf[numsample*EDFDataByteSize:]
+			}
+		}
+	}
+	if len(buf) != 0 {
+		return nil, fmt.Errorf("buf has %v bytes after unmarshal", len(buf))
+	}
+	edf = NewEDF(h, d)
+	return edf, nil
+}
+
+func UnmarshalBDF(buf []byte) (bdf *BDF, err error) {
+	h, buf, err := unmarshalHeader(buf)
+	if err != nil {
+		return nil, err
+	}
+	numdatar, err := asciiToInt(h.numdatar[:])
+	if err != nil {
+		fmt.Errorf("serialize ascii to int: %v, for %v\n", err, h.numdatar)
+	}
+	numsignal, err := asciiToInt(h.numsignal[:])
+	if err != nil {
+		fmt.Errorf("serialize ascii to int: %v, for %v\n", err, h.numsignal)
+	}
+	d := make([]*BDFData, numdatar)
+	for idx := range d {
+		d[idx] = &BDFData{Signals: make([][]int32, numsignal)}
+		for idy := range d[idx].Signals {
+			numsample, err := asciiToInt(h.numsample[idy][:])
+			if err != nil {
+				fmt.Errorf("serialize ascii to int: %v, for %v\n", err, h.numsample)
+			}
+			d[idx].Signals[idy] = toInt32(buf[:numsample*BDFDataByteSize])
+			if err != nil {
+				fmt.Errorf("serialize bytes to int failure %v\n", err)
+			}
+			if len(buf) != 0 {
+				buf = buf[numsample*BDFDataByteSize:]
+			}
+		}
+	}
+	if len(buf) != 0 {
+		return nil, fmt.Errorf("buf has %v bytes after unmarshal", len(buf))
+	}
+	bdf = NewBDF(h, d)
+	return bdf, nil
+}
+
 // Unmarshal byteslice into edf
-func Unmarshal(buf []byte) (edf *EDF, err error) {
+func unmarshalHeader(buf []byte) (header *Header, trimedbuf []byte, err error) {
 	foffset := fixedHeaderOffsets()
 	fixed := func(os int) (x, res []byte) {
 		return buf[:os], buf[os:]
@@ -112,65 +188,21 @@ func Unmarshal(buf []byte) (edf *EDF, err error) {
 		NSReserved(nsreserved))
 
 	if err != nil {
-		return nil, err
+		return nil, buf, err
 	}
 
-	numrecords, err := asciiToInt(numdatar)
-	if err != nil {
-		fmt.Errorf("serialize ascii to int failure %v, for %v\n", err, numdatar)
-	}
-	d := make([]*Data, numrecords)
-	for idx := range d {
-		d[idx] = &Data{Signals: make([][]int, ns)}
-		for idy := range d[idx].Signals {
-			sampinsig, err := strToInt(numsample[idy])
-			if err != nil {
-				fmt.Errorf("serialize ascii to int failure %v, for %v\n", err, numdatar)
-			}
-			bytesize, err := strToInt(nsreserved[idy])
-			if err != nil {
-				bytesize = 2
-			}
-			bytesinsig := sampinsig * bytesize
-			d[idx].Signals[idy], err = toInt(sampinsig, buf[:bytesinsig])
-			if err != nil {
-				fmt.Errorf("serialize bytes to int failure %v\n", err)
-			}
-			if len(buf) != 0 {
-				buf = buf[bytesinsig:]
-			}
-		}
-	}
-	if len(buf) != 0 {
-		return nil, fmt.Errorf("buf has %v bytes after unmarshal", len(buf))
-	}
-	edf = NewEDF(h, d)
-
-	return edf, nil
+	return h, buf, nil
 }
 
 // Marshal edf into byte slice
-func Marshal(edf *EDF) (buf []byte, err error) {
+func MarshalEDF(edf *EDF) (buf []byte, err error) {
 	buf, err = edf.Header.appendContents(buf)
 	if err != nil {
 		return nil, err
 	}
-	numsig, err := asciiToInt(edf.Header.numsignal[:])
-	if err != nil {
-		return buf, fmt.Errorf("intify numdatar: %v\n", edf.Header.numdatar)
-	}
-	byteSizeArr := make([]int, numsig)
-	for idx, val := range edf.Header.nsreserved {
-		bytesize, err := asciiToInt(val[:])
-		if err != nil {
-			bytesize = 2
-		}
-		byteSizeArr[idx] = bytesize
-	}
 	for _, dataRecord := range edf.DataRecords {
-		dataRecord.bytesize = byteSizeArr
 		if dataRecord.rawData == nil {
-			err = dataRecord.marshalSignals()
+			dataRecord.marshalSignals()
 			if err != nil {
 				return buf, err
 			}
@@ -180,7 +212,25 @@ func Marshal(edf *EDF) (buf []byte, err error) {
 	return buf, nil
 }
 
-func NewEDF(h *Header, d []*Data) *EDF {
+// Marshal edf into byte slice
+func MarshalBDF(edf *BDF) (buf []byte, err error) {
+	buf, err = edf.Header.appendContents(buf)
+	if err != nil {
+		return nil, err
+	}
+	for _, dataRecord := range edf.DataRecords {
+		if dataRecord.rawData == nil {
+			dataRecord.marshalSignals()
+			if err != nil {
+				return buf, err
+			}
+		}
+		buf = append(buf, dataRecord.rawData...)
+	}
+	return buf, nil
+}
+
+func NewEDF(h *Header, d []*EDFData) *EDF {
 	ndr, _ := asciiToInt(h.numdatar[:])
 	if ndr != len(d) {
 		fmt.Errorf("number of data records [%v] must equal length of []*Data [%v]\n",
@@ -199,34 +249,63 @@ func NewEDF(h *Header, d []*Data) *EDF {
 	}
 }
 
-type EDF struct {
-	Header      *Header
-	DataRecords []*Data
-}
-
-// Data holds edf data record
-type Data struct {
-	rawData  []byte
-	Signals  [][]int
-	bytesize []int
-}
-
-func (d *Data) marshalSignals() error {
-	for idx, signal := range d.Signals {
-		for _, numval := range signal {
-			switch d.bytesize[idx] {
-			case 2:
-				buf := new(bytes.Buffer)
-				_ = binary.Write(buf, binary.LittleEndian, int16(numval))
-				d.rawData = append(d.rawData, buf.Bytes()...)
-			case 3:
-				d.rawData = append(d.rawData, convertIntTo3ByteArray(numval)...)
-			default:
-				return fmt.Errorf("bytesize %v not supported\n", d.bytesize[idx])
-			}
+func NewBDF(h *Header, d []*BDFData) *BDF {
+	ndr, _ := asciiToInt(h.numdatar[:])
+	if ndr != len(d) {
+		fmt.Errorf("number of data records [%v] must equal length of []*Data [%v]\n",
+			ndr, len(d))
+	}
+	ns, _ := asciiToInt(h.numsignal[:])
+	for _, record := range d {
+		if record.Signals != nil && ns != len(record.Signals) {
+			fmt.Errorf("number of samples [%v] must equal length of Signals array [%v]\n",
+				ns, len(record.Signals))
 		}
 	}
-	return nil
+	return &BDF{
+		Header:      h,
+		DataRecords: d,
+	}
+}
+
+type EDF struct {
+	Header      *Header
+	DataRecords []*EDFData
+}
+
+type BDF struct {
+	Header      *Header
+	DataRecords []*BDFData
+}
+
+// EDFData holds one edf data record
+type EDFData struct {
+	rawData []byte
+	Signals [][]int16
+}
+
+// BDFData holds one bdf data record
+type BDFData struct {
+	rawData []byte
+	Signals [][]int32
+}
+
+func (d *EDFData) marshalSignals() {
+	for _, signal := range d.Signals {
+		for _, numval := range signal {
+			buf := new(bytes.Buffer)
+			_ = binary.Write(buf, binary.LittleEndian, int16(numval))
+			d.rawData = append(d.rawData, buf.Bytes()...)
+		}
+	}
+}
+
+func (d *BDFData) marshalSignals() {
+	for _, signal := range d.Signals {
+		for _, numval := range signal {
+			d.rawData = append(d.rawData, convertInt32To3ByteArray(numval)...)
+		}
+	}
 }
 
 // NewHeader instantiates a edf header
@@ -277,7 +356,9 @@ type Header struct {
 func (h *Header) setVersion(number string) error {
 	var idl int
 	for idx, val := range number {
-		if val < 32 || val > 126 {
+		// We support BDF files which break EDF+ compatibility with the first byte
+		// 0xFF...
+		if val < 32 || val > 126 && idx > 0 {
 			return fmt.Errorf("%s for %v in setVersion\n", errNotPrintable, val)
 		}
 		h.version[idx] = number[idx]

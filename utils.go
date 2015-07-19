@@ -1,4 +1,4 @@
-package edf
+package biosigio
 
 import (
 	"bytes"
@@ -11,23 +11,6 @@ func fillWithSpaces(input []byte) {
 	for idx, _ := range input {
 		input[idx] = '\x20'
 	}
-}
-
-func strToInt(str string) (n int, err error) {
-	sArr := make([]string, len(str))
-	for idx, val := range str {
-		if val == '\x00' || val == '\x20' {
-			sArr = sArr[:idx]
-			break
-		}
-		sArr[idx] = string(val)
-	}
-	s := strings.Join(sArr, "")
-	n, err = strconv.Atoi(s)
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
 }
 
 func asciiToInt(ascii []byte) (n int, err error) {
@@ -119,35 +102,8 @@ func convert24bitTo32bit(c []byte) int32 {
 	return int32(x)
 }
 
-func convertIntTo3ByteArray(i int) []byte {
+func convertInt32To3ByteArray(i int32) []byte {
 	out := make([]byte, 3)
-	out[2] = byte(i)
-	i = i >> 8
-	out[1] = byte(i)
-	i = i >> 8
-	out[0] = byte(i)
+	out[2], out[1], out[0] = byte(i), byte(i>>8), byte(i>>16)
 	return out
-}
-
-// ToInt coverts arrays of 2,3-byte two's complement little-endian integers
-// to arrays of go ints
-func toInt(numsample int, sample []byte) (res []int, err error) {
-	bytesize := len(sample) / numsample
-	res = make([]int, numsample)
-	switch bytesize {
-	case 2:
-		tmp, err := toInt16(sample)
-		if err != nil {
-			return res, err
-		}
-		for idx, numval := range tmp {
-			res[idx] = int(numval)
-		}
-	case 3:
-		tmp := toInt32(sample)
-		for idx, numval := range tmp {
-			res[idx] = int(numval)
-		}
-	}
-	return res, nil
 }
