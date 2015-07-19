@@ -1,4 +1,4 @@
 Overview
 ========
 
-Simple Marshal/Unmarshal operations for data in [http://www.edfplus.info/specs/edf.html](EDF) and [http://www.biosemi.com/faq/file_format.htm](BDF) data formats.
+Simple Marshal/Unmarshal operations for data in [EDF](http://www.edfplus.info/specs/edf.html) and [BDF](http://www.biosemi.com/faq/file_format.htm) data formats. See [docs](https://godoc.org/github.com/kevinjos/goedf) for details using the library.
