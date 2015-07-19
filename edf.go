@@ -47,6 +47,9 @@ const (
 	BDFDataByteSize     = 3
 )
 
+var EDFVersion = [8]byte{'\x48', '\x32', '\x32', '\x32', '\x32', '\x32', '\x32', '\x32'}
+var BDFVersion = [8]byte{'\xFF', '\x42', '\x49', '\x4F', '\x53', '\x45', '\x4D', '\x49'}
+
 func UnmarshalEDF(buf []byte) (edf *EDF, err error) {
 	h, buf, err := unmarshalHeader(buf)
 	if err != nil {
@@ -231,6 +234,9 @@ func MarshalBDF(edf *BDF) (buf []byte, err error) {
 }
 
 func NewEDF(h *Header, d []*EDFData) *EDF {
+	if h.version != EDFVersion {
+		fmt.Errorf("Version string error %s != %s", h.version, EDFVersion)
+	}
 	ndr, _ := asciiToInt(h.numdatar[:])
 	if ndr != len(d) {
 		fmt.Errorf("number of data records [%v] must equal length of []*Data [%v]\n",
@@ -250,6 +256,9 @@ func NewEDF(h *Header, d []*EDFData) *EDF {
 }
 
 func NewBDF(h *Header, d []*BDFData) *BDF {
+	if h.version != BDFVersion {
+		fmt.Errorf("Version string error %s != %s", h.version, BDFVersion)
+	}
 	ndr, _ := asciiToInt(h.numdatar[:])
 	if ndr != len(d) {
 		fmt.Errorf("number of data records [%v] must equal length of []*Data [%v]\n",
