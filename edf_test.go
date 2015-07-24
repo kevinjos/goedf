@@ -15,8 +15,8 @@ type test24pair struct {
 var tests24 = []test24pair{
 	{[]byte{0, 0, 0}, 0},
 	{[]byte{255, 255, 255}, -1},
-	{[]byte{128, 0, 0}, -8388608},
-	{[]byte{127, 255, 255}, 8388607},
+	{[]byte{0, 0, 128}, -8388608},
+	{[]byte{255, 255, 127}, 8388607},
 }
 
 func TestConvert24bitTo32bit(t *testing.T) {
@@ -40,8 +40,8 @@ type test24revpair struct {
 var tests24rev = []test24revpair{
 	{0, []byte{0, 0, 0}},
 	{-1, []byte{255, 255, 255}},
-	{-8388608, []byte{128, 0, 0}},
-	{8388607, []byte{127, 255, 255}},
+	{-8388608, []byte{0, 0, 128}},
+	{8388607, []byte{255, 255, 127}},
 }
 
 func TestConvert32IntTo3ByteArray(t *testing.T) {
@@ -79,7 +79,8 @@ type test32pair struct {
 }
 
 var tests32 = []test32pair{
-	{[]byte{0, 0, 0, 255, 255, 255, 128, 0, 0, 127, 255, 255}, []int32{0, -1, -8388608, 8388607}},
+	{[]byte{0, 0, 0, 255, 255, 255, 0, 0, 128, 255, 255, 127},
+		[]int32{0, -1, -8388608, 8388607}},
 }
 
 func TestToInt32(t *testing.T) {
