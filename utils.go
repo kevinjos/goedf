@@ -3,6 +3,7 @@ package biosigio
 import (
 	"bytes"
 	"encoding/binary"
+	"github.com/kevinjos/int24"
 	"strconv"
 	"strings"
 )
@@ -80,30 +81,11 @@ func toInt32(signal []byte) (res []int32) {
 	res = make([]int32, len(signal)/3)
 	for idx, finished := 0, false; !finished; idx++ {
 		if (idx+1)*3 == len(signal) {
-			res[idx] = convert24bitTo32bit(signal[idx*3:])
+			res[idx] = int24.Unmarshal(signal[idx*3:])
 			finished = true
 		} else {
-			res[idx] = convert24bitTo32bit(signal[idx*3 : (idx+1)*3])
+			res[idx] = int24.Unmarshal(signal[idx*3 : (idx+1)*3])
 		}
 	}
 	return res
-}
-
-//conver24bitTo32bit takes a byte slice of len 3
-//and converts the 24bit 2's complement integer
-//to the type int32 representation
-func convert24bitTo32bit(c []byte) int32 {
-	x := int((int(c[2]) << 16) | (int(c[1]) << 8) | int(c[0]))
-	if (x & 8388608) > 0 {
-		x |= 4278190080
-	} else {
-		x &= 16777215
-	}
-	return int32(x)
-}
-
-func convertInt32To3ByteArray(i int32) []byte {
-	out := make([]byte, 3)
-	out[0], out[1], out[2] = byte(i), byte(i>>8), byte(i>>16)
-	return out
 }
