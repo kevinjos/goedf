@@ -3,7 +3,7 @@ package biosigio
 import (
 	"bytes"
 	"encoding/binary"
-	"github.com/kevinjos/int24"
+	"github.com/kevinjos/openbci-golang-server/int24"
 	"strconv"
 	"strings"
 )
@@ -81,10 +81,10 @@ func toInt32(signal []byte) (res []int32) {
 	res = make([]int32, len(signal)/3)
 	for idx, finished := 0, false; !finished; idx++ {
 		if (idx+1)*3 == len(signal) {
-			res[idx] = int24.Unmarshal(signal[idx*3:])
+			res[idx] = int24.UnmarshalSLE(signal[idx*3:])
 			finished = true
 		} else {
-			res[idx] = int24.Unmarshal(signal[idx*3 : (idx+1)*3])
+			res[idx] = int24.UnmarshalSLE(signal[idx*3 : (idx+1)*3])
 		}
 	}
 	return res

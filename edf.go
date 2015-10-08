@@ -35,7 +35,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/kevinjos/int24"
+	"github.com/kevinjos/openbci-golang-server/int24"
 	"strconv"
 )
 
@@ -313,7 +313,7 @@ func (d *EDFData) marshalSignals() {
 func (d *BDFData) marshalSignals() {
 	for _, signal := range d.Signals {
 		for _, numval := range signal {
-			d.rawData = append(d.rawData, int24.Marshal(numval)...)
+			d.rawData = append(d.rawData, int24.MarshalSLE(numval)...)
 		}
 	}
 }
