@@ -3,9 +3,10 @@ package biosigio
 import (
 	"bytes"
 	"encoding/binary"
-	"github.com/kevinjos/openbci-golang-server/int24"
 	"strconv"
 	"strings"
+
+	"github.com/kevinjos/eeg-web-server/int24"
 )
 
 func fillWithSpaces(input []byte) {

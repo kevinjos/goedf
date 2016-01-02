@@ -35,8 +35,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/kevinjos/openbci-golang-server/int24"
 	"strconv"
+
+	"github.com/kevinjos/eeg-web-server/int24"
 )
 
 var errNotPrintable = errors.New("outside the printable range")
